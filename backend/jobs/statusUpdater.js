@@ -1,6 +1,6 @@
 const cron = require('node-cron');
 const User = require('../models/User');
-const Schedule = require('../models/Schedule');
+// const Schedule = require('../models/Schedule');
 
 const startStatusUpdater = () => {
   console.log('Automated Status & Schedule Updater Initialized');
@@ -37,8 +37,8 @@ const startStatusUpdater = () => {
                              lastUpdate.getFullYear() === now.getFullYear();
 
         // Check their schedule for today
-        const todaysClasses = await Schedule.find({ facultyId: faculty._id, dayOfWeek: currentDay });
-        const hasClassToday = todaysClasses.length > 0;
+        // const todaysClasses = await Schedule.find({ facultyId: faculty._id, dayOfWeek: currentDay });
+        const hasClassToday = false; // Placeholder - replace with actual schedule check if needed
 
         // SCENARIO A: THEY ARE ABSENT (No QR Scan)
         if (!updatedToday) {
@@ -56,7 +56,8 @@ const startStatusUpdater = () => {
 
         // SCENARIO B: THEY ARE PRESENT (QR Scanned Today)
         // Now we safely apply your "In Class" vs "Available" logic!
-        const activeClass = todaysClasses.find(cls => cls.startTime <= currentTime && cls.endTime > currentTime);
+        // const activeClass = todaysClasses.find(cls => cls.startTime <= currentTime && cls.endTime > currentTime);
+        const activeClass = null; // Placeholder - replace with actual class check if needed
 
         // Don't overwrite if they manually set themselves to ON_LEAVE, ON_BREAK, or IN_MEETING
         const isManuallyBusy = ['ON_LEAVE', 'ON_BREAK', 'IN_MEETING'].includes(faculty.currentStatus);

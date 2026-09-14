@@ -8,7 +8,7 @@ const Appointment = require('../models/Appointment');
 const Announcement = require('../models/Announcement');
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
-const AttendanceSession = require('../models/AttendanceSession');
+// const AttendanceSession = require('../models/AttendanceSession');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -19,7 +19,7 @@ const { requireAuth } = require('../middleware/auth');
 // === 1. SECURE REGISTRATION ROUTE (With Bcrypt) ===
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, programPosition, schoolId } = req.body;
+    const { name, email, password, role, programPosition, schoolId, facultyId } = req.body;
 
     if (!email.toLowerCase().endsWith('@ua.edu.ph')) {
       return res.status(400).json({ error: 'Registration denied. You must use a valid @ua.edu.ph university email.' });
@@ -44,7 +44,10 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const accountStatus = (role === 'STUDENT' && !schoolId) ? 'PENDING_APPROVAL' : 'ACTIVE';
+    const accountStatus = 
+      (role === 'STUDENT' && !schoolId) ? 'PENDING_APPROVAL' :
+      (role === 'FACULTY' && !facultyId) ? 'PENDING_APPROVAL' :
+      'ACTIVE';
 
     const newUser = await User.create({
       name,
@@ -53,6 +56,7 @@ router.post('/register', async (req, res) => {
       role,
       programPosition,
       schoolId,
+      facultyId,
       accountStatus,
       currentStatus: 'OUT_OF_OFFICE'
     });
@@ -166,12 +170,13 @@ router.put('/appointment/:id', async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday) to check against recurring classes
       const dayOfWeek = aptDate.getDay(); 
 
-      // 1. Fetch faculty's academic classes for this specific day
-      // Replace with your actual Schedule model reference
-      const dayClasses = await Schedule.find({ 
-        facultyId: facultyId, 
-        dayOfWeek: dayOfWeek 
-      });
+      const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek: requestedDayOfWeek });
+      const withinHours = facultyHours.some(h => 
+        timeToMinutes(time) >= timeToMinutes(h.startTime) && timeToMinutes(time) < timeToMinutes(h.endTime)
+      );
+      if (!withinHours) {
+        return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
+      }
 
       // 2. Fetch faculty's ALREADY APPROVED appointments for this exact date
       const approvedAppointments = await Appointment.find({
@@ -228,7 +233,7 @@ router.post('/schedule/add', async (req, res) => {
 
 // 5. POST ROUTE: Admin adds a new faculty member (QR Generation)
 router.post('/add', async (req, res) => {
-  const { name, email, programPosition, room, role, schoolId } = req.body;
+  const { name, email, programPosition, room, role, schoolId, facultyId } = req.body;
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -245,6 +250,7 @@ router.post('/add', async (req, res) => {
       role: role || 'FACULTY',
       qrHash,
       schoolId,
+      facultyId,
       currentStatus: 'OUT_OF_OFFICE',
     });
 
@@ -376,6 +382,30 @@ router.get('/users/all', async (req, res) => {
   }
 });
 
+// Verify a pending user by assigning their official ID
+router.patch('/users/:id/verify', async (req, res) => {
+  try {
+    const { idValue } = req.body; // the School ID or Faculty ID being assigned
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.role === 'STUDENT') {
+      user.schoolId = idValue;
+    } else if (user.role === 'FACULTY') {
+      user.facultyId = idValue;
+    } else {
+      return res.status(400).json({ error: 'This role cannot be verified this way.' });
+    }
+
+    user.accountStatus = 'ACTIVE';
+    await user.save(); // triggers your existing schema validation (format check) automatically
+
+    res.json({ message: `${user.name} has been verified.`, user });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Verification failed.' });
+  }
+});
+
 // 12. GET ROUTE: Fetch appointments for one specific faculty member
 router.get('/appointments/me/:facultyId', async (req, res) => {
   try {
@@ -435,84 +465,44 @@ router.get('/appointments/student/:studentName', async (req, res) => {
   }
 });
 
-// 16. POST ROUTE: Instructor starts a live attendance session
-router.post('/attendance/start', requireAuth(['FACULTY']), async (req, res) => {
+// Faculty sets/updates their consultation hours
+const timeToMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+router.post('/consultation-hours', async (req, res) => {
   try {
-    const { facultyId, subject, section } = req.body;
+    const { facultyId, hours } = req.body; // [{ dayOfWeek, startTime, endTime }, ...]
 
-    // 1. Generate a random 32-character hex token
-    const sessionToken = crypto.randomBytes(16).toString('hex');
-    
-    // 2. Set an absolute expiration (e.g., 3 hours from now) in case they forget to click "End Class"
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 3);
+    // 1. Total must be exactly 4 hours (240 minutes)
+    const totalMinutes = hours.reduce((sum, h) => sum + (timeToMinutes(h.endTime) - timeToMinutes(h.startTime)), 0);
+    if (totalMinutes !== 240) {
+      return res.status(400).json({ error: `Consultation hours must total exactly 4 hours per week. Currently: ${(totalMinutes / 60).toFixed(1)} hours.` });
+    }
 
-    // 3. Save the active session to the database
-    const newSession = await AttendanceSession.create({
-      facultyId,
-      subject,
-      section,
-      sessionToken,
-      expiresAt,
-      status: 'ACTIVE'
-    });
+    // 2. None of these blocks may overlap the faculty's own teaching schedule
+    const teachingSchedule = await Schedule.find({ facultyId });
+    for (const block of hours) {
+      const conflict = teachingSchedule.some(cls => 
+        cls.dayOfWeek === block.dayOfWeek &&
+        timeToMinutes(block.startTime) < timeToMinutes(cls.endTime) &&
+        timeToMinutes(cls.startTime) < timeToMinutes(block.endTime)
+      );
+      if (conflict) {
+        return res.status(400).json({ error: `Consultation block on day ${block.dayOfWeek} overlaps your teaching schedule.` });
+      }
+    }
 
-    // 4. Send the token back to the React frontend to be rendered into a QR code
-    res.json({ 
-      message: 'Class session started securely.', 
-      sessionToken: newSession.sessionToken,
-      sessionId: newSession._id
-    });
-
+    await ConsultationHours.deleteMany({ facultyId });
+    const created = await ConsultationHours.insertMany(hours.map(h => ({ ...h, facultyId })));
+    res.json({ message: 'Consultation hours saved.', hours: created });
   } catch (error) {
-    console.error('Session Error:', error);
-    res.status(500).json({ error: 'Failed to generate secure attendance session.' });
+    res.status(400).json({ error: error.message });
   }
 });
 
-// 17. POST ROUTE: Student confirms attendance via QR Redirect
-router.post('/attendance/confirm', async (req, res) => {
-  try {
-    const { sessionToken, studentId } = req.body;
-
-    // 1. Find the session
-    const session = await AttendanceSession.findOne({ sessionToken });
-
-    if (!session) {
-      return res.status(404).json({ error: 'Invalid or unrecognized QR code.' });
-    }
-
-    // 2. Validate Expiration & Status
-    const now = new Date();
-    if (session.status === 'CLOSED' || now > session.expiresAt) {
-      return res.status(400).json({ 
-        error: 'This session has ended.', 
-        code: 'SESSION_EXPIRED' 
-      });
-    }
-
-    // 3. Idempotency Check (Has this student already checked in?)
-    const alreadyCheckedIn = session.attendees.some(
-      (attendee) => attendee.studentId.toString() === studentId
-    );
-
-    if (alreadyCheckedIn) {
-      return res.status(200).json({ 
-        message: 'You are already marked present for this class.', 
-        code: 'ALREADY_LOGGED' 
-      });
-    }
-
-    // 4. Atomic Write
-    session.attendees.push({ studentId, scannedAt: now });
-    await session.save();
-
-    res.json({ message: 'Attendance confirmed successfully!' });
-
-  } catch (error) {
-    console.error('Confirmation Error:', error);
-    res.status(500).json({ error: 'Server error processing attendance.' });
-  }
+// Anyone can check a faculty member's declared hours (students need this to book)
+router.get('/consultation-hours/:facultyId', async (req, res) => {
+  const hours = await ConsultationHours.find({ facultyId: req.params.facultyId });
+  res.json(hours);
 });
 
 module.exports = router;

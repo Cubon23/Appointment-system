@@ -40,6 +40,7 @@ export default function LandingPage() {
   const [selSection, setSelSection] = useState('');
 
   const [facultyPosition, setFacultyPosition] = useState('');
+  const [facultyId, setFacultyId] = useState('');
   const [facultyTitle, setFacultyTitle] = useState('Prof.');
 
   const [isRegistering, setIsRegistering] = useState(false); 
@@ -136,6 +137,14 @@ export default function LandingPage() {
     }
   }
 
+  if (regRole === 'FACULTY' && facultyId) {
+  const facultyIdPattern = /^UA-[A-Z]{5}-\d{4}-\d{4}$/;
+  if (!facultyIdPattern.test(facultyId)) {
+    toast({ title: 'Invalid Faculty ID', description: 'Format must be e.g. UA-COSFM-2022-1234', status: 'warning' });
+    return;
+  }
+}
+
   setIsRegistering(true);
 
     try {
@@ -167,7 +176,8 @@ export default function LandingPage() {
           password: regPassword,
           role: regRole,
           programPosition: finalProgramPosition,
-          schoolId: regRole === 'STUDENT' ? schoolId : undefined
+          schoolId: regRole === 'STUDENT' ? schoolId : undefined,
+          facultyId: regRole === 'FACULTY' ? facultyId : undefined
         })
       });
 
@@ -206,7 +216,7 @@ export default function LandingPage() {
       
       <Box flex="1" p={10} maxW="600px" textAlign={{ base: 'center', md: 'left' }}>
         <Heading size="2xl" color="blue.600" mb={4}>CCIS Sync</Heading>
-        <Heading size="lg" mb={6} color={useColorModeValue('gray.700', 'white')}>Faculty Monitoring & Consultation Architecture</Heading>
+        <Heading size="lg" mb={6} color={useColorModeValue('gray.700', 'white')}>THE GWOK GWOKS</Heading>
         <Text fontSize="lg" color="gray.500" mb={8}>Streamline your academic schedule. Book consultations without the wait.</Text>
       </Box>
 
@@ -223,7 +233,7 @@ export default function LandingPage() {
                     <FormLabel>University Email</FormLabel>
                     <InputGroup>
                       <Input 
-                        placeholder="juandelacruz" 
+                        placeholder="e.g. jdelacruz" 
                         value={loginEmail} 
                         onChange={(e) => setLoginEmail(e.target.value)} 
                       />
@@ -233,29 +243,29 @@ export default function LandingPage() {
                     </InputGroup>
                   </FormControl>
                   <FormControl isRequired>
-  <FormLabel>Password</FormLabel>
-  <InputGroup>
-    <Input type={showLoginPw ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
-    <InputRightElement>
-      <IconButton
-        aria-label="Toggle password visibility"
-        icon={showLoginPw ? <ViewOffIcon /> : <ViewIcon />}
-        size="sm"
-        variant="ghost"
-        onClick={() => setShowLoginPw(!showLoginPw)}
-      />
-    </InputRightElement>
-  </InputGroup>
-</FormControl>
+                    <FormLabel>Password</FormLabel>
+                    <InputGroup>
+                      <Input type={showLoginPw ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
+                      <InputRightElement>
+                        <IconButton
+                          aria-label="Toggle password visibility"
+                          icon={showLoginPw ? <ViewOffIcon /> : <ViewIcon />}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setShowLoginPw(!showLoginPw)}
+                        />
+                      </InputRightElement>
+                    </InputGroup>
+                  </FormControl>
                   <Button type="submit" colorScheme="blue" size="lg" w="100%" isLoading={isLoggingIn}>Secure Login</Button>
                 </VStack>
               </form>
             </TabPanel>
 
             {/* REGISTRATION PANEL */}
-<TabPanel p={8}>
-  <form onSubmit={handleRegister}>
-    <VStack spacing={4}>
+  <TabPanel p={8}>
+    <form onSubmit={handleRegister}>
+      <VStack spacing={4}>
       
       {/* 1. ROLE SELECTOR */}
       <FormControl isRequired>
@@ -285,7 +295,7 @@ export default function LandingPage() {
         <FormControl isRequired>
           <FormLabel>Full Name</FormLabel>
           <Input 
-            placeholder="Juan Dela Cruz" 
+            placeholder="e.g. Juan Dela Cruz" 
             value={regName} 
             onChange={handleNameChange} 
           />
@@ -377,13 +387,21 @@ export default function LandingPage() {
           />
         </FormControl>
       )}
+      <FormControl>
+        <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
+        <Input 
+          placeholder="e.g. UA-COSFM-2022-1234" 
+          value={facultyId} 
+          onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
+        />
+      </FormControl>
 
       {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
       <FormControl isRequired>
         <FormLabel>University Email</FormLabel>
         <InputGroup>
           <Input 
-            placeholder="juandelacruz" 
+            placeholder="e.g. jdelacruz" 
             value={regEmail} 
             onChange={(e) => setRegEmail(e.target.value)} 
           />

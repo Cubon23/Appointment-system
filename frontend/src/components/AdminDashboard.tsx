@@ -41,6 +41,9 @@ export default function AdminDashboard() {
   // const [generatedQr, setGeneratedQr] = useState('');
   const [newFacultyName, setNewFacultyName] = useState('');
 
+  const [verifyingUser, setVerifyingUser] = useState<{ id: string, role: string, name: string } | null>(null);
+  const [assignedIdValue, setAssignedIdValue] = useState('');
+
   const [selectedFacultyId, setSelectedFacultyId] = useState('');
   const [subject, setSubject] = useState('');
   const [schedRoom, setSchedRoom] = useState('');
@@ -91,6 +94,31 @@ export default function AdminDashboard() {
       } else { toast({ title: data.error, status: 'error' }); }
     } catch (error) { }
     setLoading(false);
+  };
+
+  const handleVerifyUser = (id: string, role: string, name: string) => {
+  setVerifyingUser({ id, role, name });
+  setAssignedIdValue('');
+  onOpen();
+};
+
+  const submitVerification = async () => {
+    if (!verifyingUser) return;
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${verifyingUser.id}/verify`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idValue: assignedIdValue })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Verified', description: data.message, status: 'success' });
+      onClose();
+      // refresh the list so the verified user disappears from the pending queue
+      fetchAllUsers(); // reuse whatever function currently populates allUsers
+    } catch (error: any) {
+      toast({ title: 'Verification Failed', description: error.message, status: 'error' });
+    }
   };
 
   const handleAddSchedule = async (e: React.FormEvent) => {
@@ -372,15 +400,18 @@ export default function AdminDashboard() {
             <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Email</Th><Th color={mutedText}>Program</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>
             <Tbody>
               {allUsers
-                .filter(u => u.role === 'STUDENT' && u.accountStatus === 'PENDING_APPROVAL')
-                .map(student => (
-                  <Tr key={student._id}>
-                    <Td fontWeight="bold" color={textColor}>{student.name}</Td>
-                    <Td color={textColor}>{student.email}</Td>
-                    <Td color={textColor}>{student.programPosition}</Td>
-                    <Td><Badge colorScheme="orange">Awaiting School ID</Badge></Td>
+                .filter(u => 
+                  (u.role === 'STUDENT' && u.accountStatus === 'PENDING_APPROVAL') ||
+                  (u.role === 'FACULTY' && u.accountStatus === 'PENDING_APPROVAL')
+                )
+                .map(user => (
+                  <Tr key={user._id}>
+                    <Td fontWeight="bold" color={textColor}>{user.name}</Td>
+                    <Td color={textColor}>{user.email}</Td>
+                    <Td color={textColor}>{user.programPosition}</Td>
+                    <Td><Badge colorScheme="orange">Awaiting {user.role === 'STUDENT' ? 'School' : 'Faculty'} ID</Badge></Td>
                     <Td>
-                      <ChakraButton size="xs" colorScheme="green" onClick={() => handleVerifyStudent(student._id)}>
+                      <ChakraButton size="xs" colorScheme="green" onClick={() => handleVerifyUser(user._id, user.role, user.name)}>
                         Assign ID & Verify
                       </ChakraButton>
                     </Td>
@@ -394,13 +425,18 @@ export default function AdminDashboard() {
       <Modal isOpen={isOpen} onClose={onClose} isCentered>
         <ModalOverlay />
         <ModalContent>
-          {/* <ModalHeader textAlign="center">Hardware Key for {selectedQr.name}</ModalHeader> */}
+          <ModalHeader>Verify {verifyingUser?.name}</ModalHeader>
           <ModalCloseButton />
-          <ModalBody display="flex" flexDirection="column" alignItems="center" pb={8}>
-            {/* <Box p={4} bg="white" borderWidth="2px" borderRadius="lg" mb={4}>
-              <QRCodeSVG value={selectedQr.hash} size={250} />
-            </Box> */}
-            <ChakraButton colorScheme="blue" onClick={() => window.print()}>Print QR Key</ChakraButton>
+          <ModalBody display="flex" flexDirection="column" pb={8}>
+            <FormControl isRequired mb={4}>
+              <FormLabel>{verifyingUser?.role === 'STUDENT' ? 'School ID' : 'Faculty ID'}</FormLabel>
+              <Input 
+                placeholder={verifyingUser?.role === 'STUDENT' ? '2023-1234-A' : 'UA-COSFM-2025-1234'}
+                value={assignedIdValue}
+                onChange={(e) => setAssignedIdValue(e.target.value.toUpperCase())}
+              />
+            </FormControl>
+            <ChakraButton colorScheme="green" onClick={submitVerification}>Confirm Verification</ChakraButton>
           </ModalBody>
         </ModalContent>
       </Modal>

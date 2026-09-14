@@ -6,7 +6,7 @@ import AdminDashboard from './components/AdminDashboard';
 import DeanDashboard from './components/DeanDashboard';
 import StudentDashboard from './components/StudentDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
-import StudentCheckIn from './components/StudentCheckIn';
+// import StudentCheckIn from './components/StudentCheckIn';
 
 
 export default function App() {
@@ -56,7 +56,7 @@ export default function App() {
           } 
         />
 
-        <Route element={<StudentCheckIn />} path="/attend/:token" />
+        {/* <Route element={<StudentCheckIn />} path="/attend/:token" /> */}
         
         {/* Catch-all: If they type a weird URL or try to bypass, send them to login */}
         <Route path="*" element={<Navigate to="/" />} />

@@ -33,6 +33,22 @@ const UserSchema = new mongoose.Schema({
   }
 },
 
+facultyId: {
+  type: String,
+  required: false,
+  unique: true,
+  sparse: true,
+  set: (v) => v ? v.toUpperCase() : v,
+  validate: {
+    validator: function(v) {
+      if (!v) return true; // no ID yet — allowed, will be flagged instead
+      if (this.role !== 'FACULTY') return true;
+      return /^UA-[A-Z]{5}-\d{4}-\d{4}$/.test(v);
+    },
+    message: props => `${props.value} is not a valid Faculty ID format. Use UA-XXXXX-YYYY-NNNN.`
+  }
+},
+
   // MODIFIED: Removed 'required: true' so users can register without crashing the DB
   qrHash: { type: String, unique: true, sparse: true }, 
   

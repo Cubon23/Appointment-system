@@ -7,13 +7,12 @@ import {
   Button as ChakraButton, Select, Input, HStack, useToast, FormControl, 
   FormLabel, Flex, VStack, Textarea, useColorMode, useColorModeValue
 } from '@chakra-ui/react';
-import { QRCodeSVG } from 'qrcode.react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Page      = "status" | "schedule" | "attendance" | "requests"; // Added 'attendance'
+type Page      = "status" | "schedule" | "requests"; 
 type ViewMode  = "week" | "day";
 type EventType = "teaching" | "appointment";
 
@@ -122,12 +121,42 @@ export default function FacultyDashboard() {
   const [flagDate, setFlagDate] = useState('');
   const [flagReason, setFlagReason] = useState('');
 
-  // ── QR Attendance State ──────────────────────────────────────────────────────
-  const [selectedSubject, setSelectedSubject] = useState('');
-  const [selectedSection, setSelectedSection] = useState('');
-  const [activeToken, setActiveToken] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const qrAutoDetectRan = useRef(false); // Prevents infinite toast loops
+  const [consultBlocks, setConsultBlocks] = useState<{dayOfWeek: number, startTime: string, endTime: string}[]>([]);
+
+const totalMinutes = consultBlocks.reduce((sum, b) => {
+  if (!b.startTime || !b.endTime) return sum;
+  const [sh, sm] = b.startTime.split(':').map(Number);
+  const [eh, em] = b.endTime.split(':').map(Number);
+  return sum + ((eh * 60 + em) - (sh * 60 + sm));
+}, 0);
+const totalHours = (totalMinutes / 60).toFixed(1);
+const isValidTotal = totalMinutes === 240;
+
+const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
+const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
+const updateBlock = (index: number, field: string, value: any) => {
+  const updated = [...consultBlocks];
+  updated[index] = { ...updated[index], [field]: value };
+  setConsultBlocks(updated);
+};
+
+const saveConsultationHours = async () => {
+  if (!isValidTotal) {
+    return toast({ title: 'Invalid Total', description: `Must total exactly 4 hours. Currently ${totalHours} hours.`, status: 'warning' });
+  }
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ facultyId: userId, hours: consultBlocks })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    toast({ title: 'Saved', description: data.message, status: 'success' });
+  } catch (error: any) {
+    toast({ title: 'Failed', description: error.message, status: 'error' });
+  }
+};
 
   // ── Derived values ────────────────────────────────────────────────────────
   const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
@@ -200,75 +229,6 @@ export default function FacultyDashboard() {
     const intervalId = setInterval(fetchData, 5000);
     return () => clearInterval(intervalId);
   }, [userId]);
-
-  // ── QR Attendance Logic ──────────────────────────────────────────────
-  useEffect(() => {
-    if (mySchedule.length > 0 && !qrAutoDetectRan.current) {
-      const now = new Date();
-      
-      // Convert current time to absolute minutes from midnight
-      const currentMinutes = (now.getHours() * 60) + now.getMinutes();
-
-      // Frontend replica of your backend timeMath engine
-      const timeToMinutes = (timeStr: string) => {
-        if (!timeStr) return 0;
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return (hours * 60) + minutes;
-      };
-
-      const activeClass = mySchedule.find(sched => {
-        // Match day numerically (e.g., 1 = Monday)
-        const isTodayNumeric = sched.dayOfWeek === now.getDay();
-        
-        // Convert schedule bounds to absolute minutes
-        const startMins = timeToMinutes(sched.startTime);
-        const endMins = timeToMinutes(sched.endTime);
-        
-        // The mathematically absolute boundary check (-15 minutes early buffer)
-        return isTodayNumeric && currentMinutes >= (startMins - 15) && currentMinutes <= endMins;
-      });
-
-      if (activeClass) {
-        setSelectedSubject(activeClass.subject);
-        setSelectedSection(activeClass.section);
-        toast({
-          title: 'Class Auto-Detected',
-          description: `${activeClass.subject} for ${activeClass.section} is starting soon.`,
-          status: 'info',
-          duration: 4000,
-          position: 'top-right'
-        });
-      }
-      qrAutoDetectRan.current = true;
-    }
-  }, [mySchedule, toast]);
-
-  const handleStartClass = async () => {
-    if (!selectedSubject || !selectedSection) {
-      return toast({ title: 'Missing Data', description: 'Please select a subject and section.', status: 'warning' });
-    }
-    setIsGenerating(true);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/attendance/start`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'Authorization': `Bearer ${token}` 
-        },
-        body: JSON.stringify({ facultyId: userId, subject: selectedSubject, section: selectedSection })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-
-      setActiveToken(data.sessionToken);
-      toast({ title: 'Session Live', description: 'QR Code generated securely.', status: 'success' });
-    } catch (error: any) {
-      toast({ title: 'Generation Failed', description: error.message, status: 'error' });
-    }
-    setIsGenerating(false);
-  };
-  const qrUrl = `http://localhost:5173/attend/${activeToken}`;
 
   // ── Existing Status Handlers ────────────────────────────────────────
   const handleUpdateMyStatus = async () => {
@@ -421,7 +381,7 @@ export default function FacultyDashboard() {
             [
               { page: "status",   label: "My Status"      },
               { page: "schedule", label: "Master Schedule" },
-              { page: "attendance", label: "Live Attendance" }, // Merged Tab
+              // { page: "attendance", label: "Live Attendance" }, // Merged Tab
               { page: "requests", label: `Requests (${myAppointments.filter(a => a.status === 'PENDING').length})` },
             ] as { page: Page; label: string }[]
           ).map(({ page, label }) => {
@@ -475,87 +435,6 @@ export default function FacultyDashboard() {
           MAIN CONTENT
       ═══════════════════════════════════════════════════════════════════ */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-
-        {/* ───────────────────────────────────────────────────────────────
-            PAGE: LIVE ATTENDANCE (MERGED QR INITIATOR)
-        ─────────────────────────────────────────────────────────────── */}
-        {activePage === "attendance" && (
-          <Box p={8} overflowY="auto" h="100%">
-            <Heading mb={6} color={textColor} size="lg">Initiate Live Class Attendance</Heading>
-
-            <Flex direction={{ base: 'column', lg: 'row' }} gap={8}>
-              <Box flex="1" bg={cardBg} p={6} borderRadius="xl" shadow="md" borderWidth="1px" borderColor={borderColor}>
-                <Heading size="md" mb={4} color={textColor}>Session Controls</Heading>
-                
-                <VStack spacing={4} align="stretch">
-                  <FormControl isRequired>
-                    <FormLabel color={textColor}>Active Subject</FormLabel>
-                    <Select 
-                      color={textColor}
-                      value={selectedSubject} 
-                      onChange={(e) => setSelectedSubject(e.target.value)}
-                      placeholder="Select Subject (Manual Fallback)"
-                    >
-                      {Array.from(new Set(mySchedule.map(s => s.subject))).map(subj => (
-                        <option key={subj} value={subj}>{subj}</option>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <FormControl isRequired>
-                    <FormLabel color={textColor}>Target Section</FormLabel>
-                    <Select 
-                      color={textColor}
-                      value={selectedSection} 
-                      onChange={(e) => setSelectedSection(e.target.value)}
-                      placeholder="Select Section (Manual Fallback)"
-                    >
-                      {Array.from(new Set(mySchedule.map(s => s.section))).map(sec => (
-                        <option key={sec} value={sec}>{sec}</option>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <ChakraButton 
-                    colorScheme="blue" 
-                    size="lg" 
-                    onClick={handleStartClass} 
-                    isLoading={isGenerating}
-                    isDisabled={!!activeToken} 
-                  >
-                    Start Class & Generate QR
-                  </ChakraButton>
-
-                  {activeToken && (
-                    <ChakraButton colorScheme="red" variant="outline" onClick={() => setActiveToken(null)}>
-                      End Session / Clear QR
-                    </ChakraButton>
-                  )}
-                </VStack>
-              </Box>
-
-              <Box flex="1" bg={dk ? "gray.800" : "gray.50"} p={6} borderRadius="xl" shadow="inner" display="flex" flexDirection="column" alignItems="center" justifyContent="center" border="2px dashed" borderColor={borderColor}>
-                {activeToken ? (
-                  <VStack spacing={6}>
-                    <Badge colorScheme="green" px={3} py={1} fontSize="md" borderRadius="full">
-                      LIVE SESSION ACTIVE
-                    </Badge>
-                    <Box bg="white" p={4} borderRadius="lg" shadow="sm">
-                      <QRCodeSVG value={qrUrl} size={256} level="H" includeMargin />
-                    </Box>
-                    <Text fontSize="sm" color={mutedText} textAlign="center">
-                      Project this code. Students must scan via the CCIS portal to log attendance.
-                    </Text>
-                  </VStack>
-                ) : (
-                  <Text color={mutedText} fontWeight="bold">
-                    Select a class and click "Start" to project the QR code.
-                  </Text>
-                )}
-              </Box>
-            </Flex>
-          </Box>
-        )}
 
         {/* ───────────────────────────────────────────────────────────────
             PAGE: MASTER SCHEDULE
@@ -711,6 +590,11 @@ export default function FacultyDashboard() {
                   <ChakraButton colorScheme="blue" onClick={handleUpdateMyStatus} isLoading={isUpdating} w="100%">Publish Status</ChakraButton>
                 </VStack>
               </Box>
+
+              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
+                <Heading size="md" color={textColor} mb={6}>Fixed Consultation Hours</Heading>
+                {/* Simple day+time-range inputs, one row per day, saved via POST /consultation-hours */}
+              </Box>
               
               <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
                 <Heading size="md" color={textColor} mb={6}>Post a Notice (Students)</Heading>
@@ -723,6 +607,28 @@ export default function FacultyDashboard() {
                   </VStack>
                 </form>
               </Box>
+            </Box>
+
+            <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
+              <Heading size="md" color={textColor} mb={2}>Fixed Consultation Hours</Heading>
+              <Text fontSize="sm" color={mutedText} mb={4}>Must total exactly 4 hours per week, distributed however you like.</Text>
+              <VStack spacing={3} align="stretch">
+                {consultBlocks.map((block, i) => (
+                  <HStack key={i}>
+                    <Select size="sm" value={block.dayOfWeek} onChange={(e) => updateBlock(i, 'dayOfWeek', Number(e.target.value))}>
+                      {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
+                    </Select>
+                    <Input size="sm" type="time" value={block.startTime} onChange={(e) => updateBlock(i, 'startTime', e.target.value)} />
+                    <Input size="sm" type="time" value={block.endTime} onChange={(e) => updateBlock(i, 'endTime', e.target.value)} />
+                    <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
+                  </HStack>
+                ))}
+                <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
+                <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
+                  Total: {totalHours} / 4.0 hours
+                </Text>
+                <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
+              </VStack>
             </Box>
           </div>
         )}
