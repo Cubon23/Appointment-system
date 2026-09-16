@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
+import { cohortConfig } from '../data/cohortConfig';
+import { ViewIcon, ViewOffIcon, EmailIcon, PhoneIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast, 
@@ -7,7 +8,13 @@ import {
   HStack, InputGroup, InputRightAddon,
   FormHelperText,
   InputRightElement,
-  IconButton
+  IconButton,
+  Container,
+  SimpleGrid,
+  Image,
+  Divider,
+  Icon,
+  Stack,
 } from '@chakra-ui/react';
 
 export default function LandingPage() {
@@ -45,23 +52,7 @@ export default function LandingPage() {
 
   const [isRegistering, setIsRegistering] = useState(false); 
   const [showRules, setShowRules] = useState(false); // only show the checklist once they start typing
-
-  // NEW: The "Database" Dictionary simulating academic attrition
-  const cohortConfig: Record<string, Record<string, string[]>> = {
-
-    'BS INFO': {
-      '1': ['A', 'B', 'C', 'D', 'E'], // 1st year has 5 sections
-      '2': ['A', 'B', 'C', 'D'],      // Reduced by 2nd year
-      '3': ['A', 'B', 'C', 'D'],
-      '4': ['A', 'B', 'C', 'D']            // Further attrition by 4th year
-    },
-    'BS COMSCI': {
-      '1': ['A', 'B'], '2': ['A', 'B'], '3': ['A', 'B'], '4': ['A', 'B']
-    },
-    'BLIS': {
-      '1': ['A', 'B'], '2': ['A', 'B'], '3': ['A', 'B'], '4': ['A', 'B']
-    }
-  };
+  
 
   const PASSWORD_MIN_LENGTH = 12;
   const passwordPattern = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
@@ -212,245 +203,354 @@ export default function LandingPage() {
   };
 
   return (
-    <Flex minH="100vh" align="center" justify="center" bg={bg} p={4} direction={{ base: 'column', md: 'row' }}>
-      
-      <Box flex="1" p={10} maxW="600px" textAlign={{ base: 'center', md: 'left' }}>
-        <Heading size="2xl" color="blue.600" mb={4}>CCIS Sync</Heading>
-        <Heading size="lg" mb={6} color={useColorModeValue('gray.700', 'white')}>THE GWOK GWOKS</Heading>
-        <Text fontSize="lg" color="gray.500" mb={8}>Streamline your academic schedule. Book consultations without the wait.</Text>
-      </Box>
+    <Box bg={bg}>
 
-      <Box flex="1" w="100%" maxW="450px" bg={cardBg} borderRadius="xl" shadow="2xl" overflow="hidden" borderWidth="1px" borderColor={borderColor}>
-        <Tabs isFitted colorScheme="blue" variant="enclosed-colored">
-          <TabList mb="1em"><Tab py={4}>Login</Tab><Tab py={4}>Register</Tab></TabList>
-          <TabPanels>
-            
-            {/* LOGIN PANEL */}
-            <TabPanel p={8}>
-              <form onSubmit={handleLogin}>
-                <VStack spacing={5}>
-                  <FormControl isRequired>
-                    <FormLabel>University Email</FormLabel>
-                    <InputGroup>
-                      <Input 
-                        placeholder="e.g. jdelacruz" 
-                        value={loginEmail} 
-                        onChange={(e) => setLoginEmail(e.target.value)} 
-                      />
-                      <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                        @ua.edu.ph
-                      </InputRightAddon>
-                    </InputGroup>
-                  </FormControl>
-                  <FormControl isRequired>
-                    <FormLabel>Password</FormLabel>
-                    <InputGroup>
-                      <Input type={showLoginPw ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
-                      <InputRightElement>
-                        <IconButton
-                          aria-label="Toggle password visibility"
-                          icon={showLoginPw ? <ViewOffIcon /> : <ViewIcon />}
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setShowLoginPw(!showLoginPw)}
+      {/* ================= HERO + AUTH SECTION (your original layout, unchanged logic) ================= */}
+      <Flex minH="100vh" align="center" justify="center" bg={bg} p={4} direction={{ base: 'column', md: 'row' }}>
+        
+        <Box flex="1" p={10} maxW="600px" textAlign={{ base: 'center', md: 'left' }}>
+          <Heading size="2xl" color="blue.600" mb={4}>CCIS Sync</Heading>
+          <Heading size="lg" mb={6} color={useColorModeValue('gray.700', 'white')}>THE GWOK GWOKS</Heading>
+          <Text fontSize="lg" color="gray.500" mb={8}>Streamline your academic schedule. Book consultations without the wait.</Text>
+        </Box>
+
+        <Box flex="1" w="100%" maxW="450px" bg={cardBg} borderRadius="xl" shadow="2xl" overflow="hidden" borderWidth="1px" borderColor={borderColor}>
+          <Tabs isFitted colorScheme="blue" variant="enclosed-colored">
+            <TabList mb="1em"><Tab py={4}>Login</Tab><Tab py={4}>Register</Tab></TabList>
+            <TabPanels>
+              
+              {/* LOGIN PANEL */}
+              <TabPanel p={8}>
+                <form onSubmit={handleLogin}>
+                  <VStack spacing={5}>
+                    <FormControl isRequired>
+                      <FormLabel>University Email</FormLabel>
+                      <InputGroup>
+                        <Input 
+                          placeholder="e.g. jdelacruz" 
+                          value={loginEmail} 
+                          onChange={(e) => setLoginEmail(e.target.value)} 
                         />
-                      </InputRightElement>
-                    </InputGroup>
-                  </FormControl>
-                  <Button type="submit" colorScheme="blue" size="lg" w="100%" isLoading={isLoggingIn}>Secure Login</Button>
-                </VStack>
-              </form>
-            </TabPanel>
+                        <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+                          @ua.edu.ph
+                        </InputRightAddon>
+                      </InputGroup>
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel>Password</FormLabel>
+                      <InputGroup>
+                        <Input type={showLoginPw ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
+                        <InputRightElement>
+                          <IconButton
+                            aria-label="Toggle password visibility"
+                            icon={showLoginPw ? <ViewOffIcon /> : <ViewIcon />}
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setShowLoginPw(!showLoginPw)}
+                          />
+                        </InputRightElement>
+                      </InputGroup>
+                    </FormControl>
+                    <Button type="submit" colorScheme="blue" size="lg" w="100%" isLoading={isLoggingIn}>Secure Login</Button>
+                  </VStack>
+                </form>
+              </TabPanel>
 
-            {/* REGISTRATION PANEL */}
-  <TabPanel p={8}>
-    <form onSubmit={handleRegister}>
-      <VStack spacing={4}>
-      
-      {/* 1. ROLE SELECTOR */}
-      <FormControl isRequired>
-        <FormLabel>I am registering as a:</FormLabel>
-        <Select value={regRole} onChange={(e) => setRegRole(e.target.value as 'STUDENT' | 'FACULTY')}>
-          <option value="STUDENT">Student</option>
-          <option value="FACULTY">Faculty Member</option>
-        </Select>
-      </FormControl>
-
-      {/* 2. FULL NAME & SUFFIX */}
-      <HStack align="flex-end" w="100%">
-        {/* Render Title Dropdown ONLY for Faculty */}
-        {regRole === 'FACULTY' && (
-          <FormControl w="130px" isRequired>
-            <FormLabel>Title</FormLabel>
-            <Select value={facultyTitle} onChange={(e) => setFacultyTitle(e.target.value)}>
-              <option value="Prof.">Prof.</option>
-              <option value="Dr.">Dr.</option>
-              <option value="Engr.">Engr.</option>
-              <option value="Mr.">Mr.</option>
-              <option value="Ms.">Ms.</option>
-            </Select>
-          </FormControl>
-        )}
-
+              {/* REGISTRATION PANEL */}
+    <TabPanel p={8}>
+      <form onSubmit={handleRegister}>
+        <VStack spacing={4}>
+        
+        {/* 1. ROLE SELECTOR */}
         <FormControl isRequired>
-          <FormLabel>Full Name</FormLabel>
-          <Input 
-            placeholder="e.g. Juan Dela Cruz" 
-            value={regName} 
-            onChange={handleNameChange} 
-          />
-        </FormControl>
-
-        <FormControl w="110px">
-          <FormLabel>Suffix</FormLabel>
-          <Select value={nameSuffix} onChange={(e) => setNameSuffix(e.target.value)}>
-            <option value="">None</option>
-            <option value="Sr.">Sr.</option>
-            <option value="Jr.">Jr.</option>
-            <option value="I">I</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
-            <option value="V">V</option>
+          <FormLabel>I am registering as a:</FormLabel>
+          <Select value={regRole} onChange={(e) => setRegRole(e.target.value as 'STUDENT' | 'FACULTY')}>
+            <option value="STUDENT">Student</option>
+            <option value="FACULTY">Faculty Member</option>
           </Select>
         </FormControl>
-      </HStack>
 
-      {/* 3. DYNAMIC FORM FIELDS (ACADEMIC IDENTITY) */}
-      {regRole === 'STUDENT' ? (
-        <>
+        {/* 2. FULL NAME & SUFFIX */}
+        <HStack align="flex-end" w="100%">
+          {/* Render Title Dropdown ONLY for Faculty */}
+          {regRole === 'FACULTY' && (
+            <FormControl w="130px" isRequired>
+              <FormLabel>Title</FormLabel>
+              <Select value={facultyTitle} onChange={(e) => setFacultyTitle(e.target.value)}>
+                <option value="Prof.">Prof.</option>
+                <option value="Dr.">Dr.</option>
+                <option value="Engr.">Engr.</option>
+                <option value="Mr.">Mr.</option>
+                <option value="Ms.">Ms.</option>
+              </Select>
+            </FormControl>
+          )}
+
           <FormControl isRequired>
-            <FormLabel>School ID</FormLabel>
+            <FormLabel>Full Name</FormLabel>
             <Input 
-              placeholder="2024-1234-A or 2025-S04321" 
-              value={schoolId} 
-              onChange={(e) => setSchoolId(e.target.value.toUpperCase())} 
+              placeholder="e.g. Juan Dela Cruz" 
+              value={regName} 
+              onChange={handleNameChange} 
             />
-            <FormHelperText fontSize="xs">Old format: YYYY-XXXX-Letter · New format: YYYY-S0XXXX</FormHelperText>
           </FormControl>
-        
-          <FormControl isRequired>
-            <FormLabel>Program / Year / Section</FormLabel>
-            <HStack w="100%">
-              {/* PROGRAM DROPDOWN */}
+
+          <FormControl w="110px">
+            <FormLabel>Suffix</FormLabel>
+            <Select value={nameSuffix} onChange={(e) => setNameSuffix(e.target.value)}>
+              <option value="">None</option>
+              <option value="Sr.">Sr.</option>
+              <option value="Jr.">Jr.</option>
+              <option value="I">I</option>
+              <option value="II">II</option>
+              <option value="III">III</option>
+              <option value="IV">IV</option>
+              <option value="V">V</option>
+            </Select>
+          </FormControl>
+        </HStack>
+
+        {/* 3. DYNAMIC FORM FIELDS (ACADEMIC IDENTITY) */}
+        {regRole === 'STUDENT' ? (
+          <>
+            <FormControl isRequired>
+              <FormLabel>School ID</FormLabel>
+              <Input 
+                placeholder="2024-1234-A or 2025-S04321" 
+                value={schoolId} 
+                onChange={(e) => setSchoolId(e.target.value.toUpperCase())} 
+              />
+              <FormHelperText fontSize="xs">Old format: YYYY-XXXX-Letter · New format: YYYY-S0XXXX</FormHelperText>
+            </FormControl>
+          
+            <FormControl isRequired>
+              <FormLabel>Program / Year / Section</FormLabel>
+              <HStack w="100%">
+                {/* PROGRAM DROPDOWN */}
+                <Select
+                  value={selProgram}
+                  onChange={(e) => {
+                    setSelProgram(e.target.value);
+                    setSelYear('');    // Reset downstream
+                    setSelSection(''); // Reset downstream
+                  }}
+                  >
+                  <option value="" disabled hidden>Program</option>
+                    {Object.keys(cohortConfig).map(prog => (
+                  <option value={prog} key={prog}>{prog}</option>
+                ))}
+              </Select>
+
+                {/* YEAR DROPDOWN */}
               <Select
-                value={selProgram}
+                value={selYear}
                 onChange={(e) => {
-                  setSelProgram(e.target.value);
-                  setSelYear('');    // Reset downstream
-                  setSelSection(''); // Reset downstream
+                  setSelYear(e.target.value);
+                  setSelSection(''); // Reset downstream section when year changes
                 }}
-                >
-                <option value="" disabled hidden>Program</option>
-                  {Object.keys(cohortConfig).map(prog => (
-                <option value={prog} key={prog}>{prog}</option>
-              ))}
-            </Select>
+                isDisabled={!selProgram}
+              >
+                <option value="" disabled hidden>Year</option>
+                {selProgram && Object.keys(cohortConfig[selProgram]).map(year => (
+                  <option value={year} key={year}>{year}</option>
+                ))}
+              </Select>
 
-              {/* YEAR DROPDOWN */}
-            <Select
-              value={selYear}
-              onChange={(e) => {
-                setSelYear(e.target.value);
-                setSelSection(''); // Reset downstream section when year changes
-              }}
-              isDisabled={!selProgram}
-            >
-              <option value="" disabled hidden>Year</option>
-              {selProgram && Object.keys(cohortConfig[selProgram]).map(year => (
-                <option value={year} key={year}>{year}</option>
-              ))}
-            </Select>
+              {/* SECTION DROPDOWN */}
+              <Select
+                value={selSection}
+                onChange={(e) => setSelSection(e.target.value)}
+                isDisabled={!selYear}
+              >
+                <option value="" disabled hidden>Section</option>
+                {selProgram && selYear && cohortConfig[selProgram][selYear].map(sec => (
+                  <option value={sec} key={sec}>{sec}</option>
+                ))}
+              </Select>
 
-            {/* SECTION DROPDOWN */}
-            <Select
-              value={selSection}
-              onChange={(e) => setSelSection(e.target.value)}
-              isDisabled={!selYear}
-            >
-              <option value="" disabled hidden>Section</option>
-              {selProgram && selYear && cohortConfig[selProgram][selYear].map(sec => (
-                <option value={sec} key={sec}>{sec}</option>
-              ))}
-            </Select>
-
-          </HStack>
+            </HStack>
+          </FormControl>
+          </>
+        ) : (
+          <FormControl isRequired>
+            <FormLabel>Academic Position</FormLabel>
+            <Input 
+              placeholder="e.g. IT Instructor or Program Head" 
+              value={facultyPosition} 
+              onChange={(e) => setFacultyPosition(e.target.value)} 
+            />
+          </FormControl>
+        )}
+        <FormControl>
+          <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
+          <Input 
+            placeholder="e.g. UA-COSFM-2022-1234" 
+            value={facultyId} 
+            onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
+          />
         </FormControl>
-        </>
-      ) : (
+
+        {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
         <FormControl isRequired>
-          <FormLabel>Academic Position</FormLabel>
-          <Input 
-            placeholder="e.g. IT Instructor or Program Head" 
-            value={facultyPosition} 
-            onChange={(e) => setFacultyPosition(e.target.value)} 
-          />
+          <FormLabel>University Email</FormLabel>
+          <InputGroup>
+            <Input 
+              placeholder="e.g. jdelacruz" 
+              value={regEmail} 
+              onChange={(e) => setRegEmail(e.target.value)} 
+            />
+            <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+              @ua.edu.ph
+            </InputRightAddon>
+          </InputGroup>
         </FormControl>
-      )}
-      <FormControl>
-        <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
-        <Input 
-          placeholder="e.g. UA-COSFM-2022-1234" 
-          value={facultyId} 
-          onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
-        />
-      </FormControl>
 
-      {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
-      <FormControl isRequired>
-        <FormLabel>University Email</FormLabel>
-        <InputGroup>
-          <Input 
-            placeholder="e.g. jdelacruz" 
-            value={regEmail} 
-            onChange={(e) => setRegEmail(e.target.value)} 
-          />
-          <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-            @ua.edu.ph
-          </InputRightAddon>
-        </InputGroup>
-      </FormControl>
-
-      <FormControl isRequired>
-  <FormLabel>Password</FormLabel>
-  <InputGroup>
-    <Input 
-      type={showRegPw ? 'text' : 'password'} 
-      value={regPassword} 
-      onChange={(e) => { setRegPassword(e.target.value); setShowRules(true); }} 
-    />
-    <InputRightElement>
-      <IconButton
-        aria-label="Toggle password visibility"
-        icon={showRegPw ? <ViewOffIcon /> : <ViewIcon />}
-        size="sm"
-        variant="ghost"
-        onClick={() => setShowRegPw(!showRegPw)}
+        <FormControl isRequired>
+    <FormLabel>Password</FormLabel>
+    <InputGroup>
+      <Input 
+        type={showRegPw ? 'text' : 'password'} 
+        value={regPassword} 
+        onChange={(e) => { setRegPassword(e.target.value); setShowRules(true); }} 
       />
-    </InputRightElement>
-  </InputGroup>
-  {showRules && (
-    <VStack align="start" mt={2} spacing={0} fontSize="xs">
-      <Text color={passwordRules.length ? 'green.500' : 'gray.400'}>{passwordRules.length ? '✓' : '○'} At least 12 characters</Text>
-      <Text color={passwordRules.upper ? 'green.500' : 'gray.400'}>{passwordRules.upper ? '✓' : '○'} One uppercase letter</Text>
-      <Text color={passwordRules.number ? 'green.500' : 'gray.400'}>{passwordRules.number ? '✓' : '○'} One number</Text>
-      <Text color={passwordRules.symbol ? 'green.500' : 'gray.400'}>{passwordRules.symbol ? '✓' : '○'} One symbol (e.g. ! @ # . _ -)</Text>
-    </VStack>
-  )}
-</FormControl>
+      <InputRightElement>
+        <IconButton
+          aria-label="Toggle password visibility"
+          icon={showRegPw ? <ViewOffIcon /> : <ViewIcon />}
+          size="sm"
+          variant="ghost"
+          onClick={() => setShowRegPw(!showRegPw)}
+        />
+      </InputRightElement>
+    </InputGroup>
+    {showRules && (
+      <VStack align="start" mt={2} spacing={0} fontSize="xs">
+        <Text color={passwordRules.length ? 'green.500' : 'gray.400'}>{passwordRules.length ? '✓' : '○'} At least 12 characters</Text>
+        <Text color={passwordRules.upper ? 'green.500' : 'gray.400'}>{passwordRules.upper ? '✓' : '○'} One uppercase letter</Text>
+        <Text color={passwordRules.number ? 'green.500' : 'gray.400'}>{passwordRules.number ? '✓' : '○'} One number</Text>
+        <Text color={passwordRules.symbol ? 'green.500' : 'gray.400'}>{passwordRules.symbol ? '✓' : '○'} One symbol (e.g. ! @ # . _ -)</Text>
+      </VStack>
+    )}
+  </FormControl>
 
-      {/* 5. SUBMIT BUTTON */}
-      <Button type="submit" colorScheme="green" size="lg" w="100%" mt={4} isLoading={isRegistering}>
-        {regRole === 'STUDENT' ? 'Create Account' : 'Request Faculty Access'}
-      </Button>
-      
-    </VStack>
-  </form>
-</TabPanel>
+        {/* 5. SUBMIT BUTTON */}
+        <Button type="submit" colorScheme="green" size="lg" w="100%" mt={4} isLoading={isRegistering}>
+          {regRole === 'STUDENT' ? 'Create Account' : 'Request Faculty Access'}
+        </Button>
+        
+      </VStack>
+    </form>
+  </TabPanel>
 
-          </TabPanels>
-        </Tabs>
+            </TabPanels>
+          </Tabs>
+        </Box>
+      </Flex>
+
+      {/* ================= ABOUT US (NEW — DESIGN ONLY, PLACEHOLDER COPY) ================= */}
+      <Box py={20} bg={cardBg} borderTopWidth="1px" borderColor={borderColor}>
+        <Container maxW="6xl">
+          <Heading size="xl" mb={4} textAlign="center" color="blue.600">About Us</Heading>
+          <Text fontSize="md" color="gray.500" textAlign="center" maxW="3xl" mx="auto" mb={12}>
+            {/* TODO: replace with your real About Us copy */}
+            CCIS Sync is a scheduling platform built by students, for students — designed to make
+            booking faculty consultations simple, fast, and transparent for the whole college.
+          </Text>
+
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={10}>
+            <VStack spacing={3} textAlign="center">
+              <Heading size="md">Our Mission</Heading>
+              <Text fontSize="sm" color="gray.500">
+                {/* TODO: replace placeholder */}
+                To remove the friction between students and faculty when scheduling academic consultations.
+              </Text>
+            </VStack>
+            <VStack spacing={3} textAlign="center">
+              <Heading size="md">Our Team</Heading>
+              <Text fontSize="sm" color="gray.500">
+                {/* TODO: replace placeholder */}
+                Built by "The Gwok Gwoks," a student development team from the College of Computing
+                and Information Sciences.
+              </Text>
+            </VStack>
+            <VStack spacing={3} textAlign="center">
+              <Heading size="md">Our Values</Heading>
+              <Text fontSize="sm" color="gray.500">
+                {/* TODO: replace placeholder */}
+                Reliability, accessibility, and respect for everyone's time.
+              </Text>
+            </VStack>
+          </SimpleGrid>
+        </Container>
       </Box>
-    </Flex>
+
+      {/* ================= PICTURES / GALLERY (NEW — DESIGN ONLY, PLACEHOLDER IMAGES) ================= */}
+      <Box py={20} bg={bg}>
+        <Container maxW="6xl">
+          <Heading size="xl" mb={4} textAlign="center" color="blue.600">Gallery</Heading>
+          <Text fontSize="md" color="gray.500" textAlign="center" mb={12}>
+            {/* TODO: swap src values below for your real campus / team photos */}
+            A few glimpses of CCIS Sync in action.
+          </Text>
+          <SimpleGrid columns={{ base: 1, sm: 2, md: 3 }} spacing={6}>
+            {[
+              'https://placehold.co/500x350?text=Campus+Photo+1',
+              'https://placehold.co/500x350?text=Campus+Photo+2',
+              'https://placehold.co/500x350?text=Team+Photo',
+              'https://placehold.co/500x350?text=Consultation+Room',
+              'https://placehold.co/500x350?text=Event+Photo',
+              'https://placehold.co/500x350?text=Faculty+Photo',
+            ].map((src, i) => (
+              <Box key={i} borderRadius="lg" overflow="hidden" shadow="md" borderWidth="1px" borderColor={borderColor}>
+                <Image src={src} alt={`Gallery placeholder ${i + 1}`} objectFit="cover" w="100%" h="220px" />
+              </Box>
+            ))}
+          </SimpleGrid>
+        </Container>
+      </Box>
+
+      {/* ================= CONTACT US (NEW — DESIGN ONLY, PLACEHOLDER DETAILS) ================= */}
+      <Box py={20} bg={cardBg} borderTopWidth="1px" borderColor={borderColor}>
+        <Container maxW="4xl">
+          <Heading size="xl" mb={4} textAlign="center" color="blue.600">Contact Us</Heading>
+          <Text fontSize="md" color="gray.500" textAlign="center" mb={10}>
+            {/* TODO: replace with your real contact info */}
+            Have a question or ran into an issue? Reach out to the CCIS Sync team.
+          </Text>
+
+          <Stack direction={{ base: 'column', md: 'row' }} spacing={10} justify="center" align="flex-start">
+            <HStack align="flex-start">
+              <Icon as={EmailIcon} boxSize={5} color="blue.500" mt={1} />
+              <Box>
+                <Text fontWeight="bold">Email</Text>
+                {/* TODO: replace placeholder email */}
+                <Text color="gray.500" fontSize="sm">gowkgowk.support@ua.edu.ph</Text>
+              </Box>
+            </HStack>
+
+            <HStack align="flex-start">
+              <Icon as={PhoneIcon} boxSize={5} color="blue.500" mt={1} />
+              <Box>
+                <Text fontWeight="bold">Phone</Text>
+                {/* TODO: replace placeholder number */}
+                <Text color="gray.500" fontSize="sm">+63 963 802 0042</Text>
+              </Box>
+            </HStack>
+
+            <VStack align="flex-start">
+              <Text fontWeight="bold">Office</Text>
+              {/* TODO: replace placeholder address */}
+              <Text color="gray.500" fontSize="sm">College of Computing and Information Sciences<br />CCIS Building,Room 205</Text>
+            </VStack>
+          </Stack>
+        </Container>
+      </Box>
+
+      <Divider />
+      <Box py={6} textAlign="center">
+        <Text fontSize="xs" color="gray.400">© {new Date().getFullYear()} CCIS Sync — The Gwok Gwoks</Text>
+      </Box>
+
+    </Box>
   );
 }

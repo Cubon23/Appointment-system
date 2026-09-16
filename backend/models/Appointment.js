@@ -7,7 +7,13 @@ const AppointmentSchema = new mongoose.Schema({
   date: { type: String, required: true },
   time: { type: String, required: true },
   reason: { type: String, required: true },
-  status: { type: String, default: 'PENDING' } // Can be PENDING, APPROVED, or REJECTED
+  status: { type: String, default: 'PENDING' }, // PENDING, APPROVED, REJECTED, COMPLETED
+
+  // === Consultation Log fields (VAA-FM-035), filled AFTER the consultation ===
+  casePresented:     { type: String },
+  interventionTaken: { type: String },
+  remarks:           { type: String },
+  completedAt:       { type: Date }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Appointment', AppointmentSchema);

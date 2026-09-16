@@ -50,6 +50,14 @@
   }
 }
 
+@media print {
+  body * { visibility: hidden; }
+  #printable-log, #printable-log * { visibility: visible; }
+  #printable-log { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+  @page { size: landscape; margin: 10mm; }
+}
+
 #root {
   /* width: 1126px; */
   max-width: 100%;

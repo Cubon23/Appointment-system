@@ -8,7 +8,6 @@ const Appointment = require('../models/Appointment');
 const Announcement = require('../models/Announcement');
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
-// const AttendanceSession = require('../models/AttendanceSession');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -170,20 +169,23 @@ router.put('/appointment/:id', async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday) to check against recurring classes
       const dayOfWeek = aptDate.getDay(); 
 
-      const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek: requestedDayOfWeek });
+            const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
       const withinHours = facultyHours.some(h => 
-        timeToMinutes(time) >= timeToMinutes(h.startTime) && timeToMinutes(time) < timeToMinutes(h.endTime)
+        timeToMinutes(targetApt.time) >= timeToMinutes(h.startTime) && timeToMinutes(targetApt.time) < timeToMinutes(h.endTime)
       );
       if (!withinHours) {
         return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
       }
+
+      // 1b. Fetch faculty's immovable teaching schedule for this day
+      const dayClasses = await Schedule.find({ facultyId, dayOfWeek });
 
       // 2. Fetch faculty's ALREADY APPROVED appointments for this exact date
       const approvedAppointments = await Appointment.find({
         facultyId: facultyId,
         date: targetApt.date,
         status: 'APPROVED',
-        _id: { $ne: targetApt._id } // Do not compare against itself
+        _id: { $ne: targetApt._id }
       });
 
       // Pool all physical commitments together
@@ -293,12 +295,29 @@ router.post('/appointment', async (req, res) => {
   try {
     const { facultyId, date, time, studentName, studentSection, reason } = req.body;
     
-    // We get the studentId from the token/session (if available) or pass it in body
     const studentId = req.body.studentId || null; 
 
     const aptDate = new Date(date);
     const dayOfWeek = aptDate.getDay(); 
     const requestedMinutes = timeToMinutes(time); 
+
+    // 0. Block booking dates/times that have already passed
+    const [aptHour, aptMinute] = time.split(':').map(Number);
+    const requestedDateTime = new Date(date);
+    requestedDateTime.setHours(aptHour, aptMinute, 0, 0);
+
+    if (requestedDateTime < new Date()) {
+      return res.status(400).json({ 
+        error: 'Booking Denied: You cannot schedule an appointment in the past.' 
+      });
+    }
+
+    // Upstream Operating Hours Constraint: 7:30 AM (450 mins) to 4:00 PM (960 mins)
+    if (requestedMinutes < 450 || requestedMinutes > 960) {
+      return res.status(400).json({ 
+        error: `Booking Denied: Consultations are restricted to official operating hours (7:30 AM to 4:00 PM).` 
+      });
+    }
 
     // Upstream Operating Hours Constraint: 7:30 AM (450 mins) to 4:00 PM (960 mins)
     if (requestedMinutes < 450 || requestedMinutes > 960) {
@@ -496,6 +515,45 @@ router.post('/consultation-hours', async (req, res) => {
     res.json({ message: 'Consultation hours saved.', hours: created });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// Complete a consultation and record the log entry (digital sign-off)
+router.patch('/appointment/:id/complete', async (req, res) => {
+  try {
+    const { casePresented, interventionTaken, remarks } = req.body;
+    const apt = await Appointment.findById(req.params.id);
+    if (!apt) return res.status(404).json({ error: 'Appointment not found.' });
+    if (apt.status !== 'APPROVED') {
+      return res.status(400).json({ error: 'Only approved consultations can be completed.' });
+    }
+    if (apt.completedAt) {
+      return res.status(400).json({ error: 'This consultation has already been signed off and cannot be edited.' });
+    }
+
+    apt.casePresented     = casePresented;
+    apt.interventionTaken = interventionTaken;
+    apt.remarks           = remarks;
+    apt.status            = 'COMPLETED';
+    apt.completedAt       = new Date();
+    await apt.save();
+
+    res.json({ message: 'Consultation logged and signed off.', appointment: apt });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Fetch a faculty member's consultation log (completed entries, oldest first like the paper form)
+router.get('/consultation-log/:facultyId', async (req, res) => {
+  try {
+    const log = await Appointment.find({ 
+      facultyId: req.params.facultyId, 
+      status: 'COMPLETED' 
+    }).sort({ date: 1, time: 1 });
+    res.json(log);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching consultation log.' });
   }
 });
 

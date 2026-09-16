@@ -1,0 +1,14 @@
+export const cohortConfig: Record<string, Record<string, string[]>> = {
+  'BS INFO': {
+    '1': ['A', 'B', 'C', 'D', 'E'],
+    '2': ['A', 'B', 'C', 'D'],
+    '3': ['A', 'B', 'C', 'D'],
+    '4': ['A', 'B', 'C', 'D']
+  },
+  'BS COMSCI': {
+    '1': ['A', 'B'], '2': ['A', 'B'], '3': ['A', 'B'], '4': ['A', 'B']
+  },
+  'BLIS': {
+    '1': ['A', 'B'], '2': ['A', 'B'], '3': ['A', 'B'], '4': ['A', 'B']
+  }
+};

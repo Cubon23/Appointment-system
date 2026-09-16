@@ -12,7 +12,7 @@ import {
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Page      = "status" | "schedule" | "requests"; 
+type Page      = "status" | "schedule" | "requests" | "log"; 
 type ViewMode  = "week" | "day";
 type EventType = "teaching" | "appointment";
 
@@ -123,21 +123,50 @@ export default function FacultyDashboard() {
 
   const [consultBlocks, setConsultBlocks] = useState<{dayOfWeek: number, startTime: string, endTime: string}[]>([]);
 
-const totalMinutes = consultBlocks.reduce((sum, b) => {
-  if (!b.startTime || !b.endTime) return sum;
-  const [sh, sm] = b.startTime.split(':').map(Number);
-  const [eh, em] = b.endTime.split(':').map(Number);
-  return sum + ((eh * 60 + em) - (sh * 60 + sm));
-}, 0);
-const totalHours = (totalMinutes / 60).toFixed(1);
-const isValidTotal = totalMinutes === 240;
+  const totalMinutes = consultBlocks.reduce((sum, b) => {
+    if (!b.startTime || !b.endTime) return sum;
+    const [sh, sm] = b.startTime.split(':').map(Number);
+    const [eh, em] = b.endTime.split(':').map(Number);
+    return sum + ((eh * 60 + em) - (sh * 60 + sm));
+  }, 0);
+  const totalHours = (totalMinutes / 60).toFixed(1);
+  const isValidTotal = totalMinutes === 240;
 
-const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
-const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
-const updateBlock = (index: number, field: string, value: any) => {
+  const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
+  const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
+  const updateBlock = (index: number, field: string, value: any) => {
   const updated = [...consultBlocks];
   updated[index] = { ...updated[index], [field]: value };
   setConsultBlocks(updated);
+  };
+
+  const [consultLog, setConsultLog] = useState<any[]>([]);
+const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
+
+const fetchLog = () => {
+  fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-log/${userId}`)
+    .then(r => r.json())
+    .then(setConsultLog)
+    .catch(() => {});
+};
+useEffect(() => { fetchLog(); }, []);
+
+const submitLogEntry = async (aptId: string) => {
+  const entry = logForm[aptId] || { casePresented: '', interventionTaken: '', remarks: '' };
+  try {
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${aptId}/complete`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error);
+    toast({ title: 'Consultation Logged', description: data.message, status: 'success' });
+    fetchLog();
+    fetchAppointments(); // whatever function currently refreshes myAppointments
+  } catch (error: any) {
+    toast({ title: 'Failed', description: error.message, status: 'error' });
+  }
 };
 
 const saveConsultationHours = async () => {
@@ -383,6 +412,7 @@ const saveConsultationHours = async () => {
               { page: "schedule", label: "Master Schedule" },
               // { page: "attendance", label: "Live Attendance" }, // Merged Tab
               { page: "requests", label: `Requests (${myAppointments.filter(a => a.status === 'PENDING').length})` },
+              { page: "log",      label: "Consultation Log" },
             ] as { page: Page; label: string }[]
           ).map(({ page, label }) => {
             const active = activePage === page;
@@ -666,7 +696,97 @@ const saveConsultationHours = async () => {
           </div>
         )}
 
+        {/* ───────────────────────────────────────────────────────────────
+            PAGE: CONSULTATION LOG (Chakra UI Form)
+        ─────────────────────────────────────────────────────────────── */}
+
+        {activePage === "log" && (
+          <Box>
+            {/* Approved consultations awaiting sign-off */}
+            <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" mb={6} className="no-print">
+              <Heading size="md" color={textColor} mb={4}>Awaiting Sign-Off</Heading>
+              {myAppointments.filter(a => a.status === 'APPROVED').length === 0 ? (
+                <Text color={mutedText}>No completed consultations to log.</Text>
+              ) : myAppointments.filter(a => a.status === 'APPROVED').map(apt => (
+                <Box key={apt._id} borderWidth="1px" borderColor={borderColor} borderRadius="md" p={4} mb={3}>
+                  <Text fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection}) — {apt.date} {formatTime(apt.time)}</Text>
+                  <Text fontSize="sm" color={mutedText} mb={3}>Student's stated reason: {apt.reason}</Text>
+                  <VStack spacing={2} align="stretch">
+                    <Textarea size="sm" placeholder="Case Presented" value={logForm[apt._id]?.casePresented || ''}
+                      onChange={e => setLogForm({...logForm, [apt._id]: {...logForm[apt._id], casePresented: e.target.value}})} />
+                    <Textarea size="sm" placeholder="Intervention / Action Taken" value={logForm[apt._id]?.interventionTaken || ''}
+                      onChange={e => setLogForm({...logForm, [apt._id]: {...logForm[apt._id], interventionTaken: e.target.value}})} />
+                    <Textarea size="sm" placeholder="Remarks" value={logForm[apt._id]?.remarks || ''}
+                      onChange={e => setLogForm({...logForm, [apt._id]: {...logForm[apt._id], remarks: e.target.value}})} />
+                    <ChakraButton size="sm" colorScheme="green" onClick={() => submitLogEntry(apt._id)}>Complete & Sign Off</ChakraButton>
+                  </VStack>
+                </Box>
+              ))}
+            </Box>
+
+            {/* The official form layout */}
+            <Box bg="white" color="black" p={8} borderRadius="lg" borderWidth="1px" borderColor={borderColor} id="printable-log">
+              <HStack justifyContent="flex-end" mb={4} className="no-print">
+                <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Download / Print Form</ChakraButton>
+              </HStack>
+
+              <VStack spacing={0} mb={6}>
+                <Text fontSize="sm">Republic of the Philippines</Text>
+                <Text fontSize="sm" fontWeight="bold">UNIVERSITY OF ANTIQUE</Text>
+                <Text fontSize="sm">Sibalom, Antique</Text>
+                <Heading size="md" mt={4} letterSpacing="wide">STUDENTS' CONSULTATION FORM</Heading>
+              </VStack>
+
+              <HStack justifyContent="space-between" mb={4} fontSize="sm">
+                <VStack align="start" spacing={1}>
+                  <Text>Name of Faculty: <b>{userName}</b></Text>
+                  <Text>School Term: __________ Sem, AY __________</Text>
+                </VStack>
+                <Text>Consultation Schedule: __________</Text>
+              </HStack>
+
+              <Table size="sm" variant="simple" border="1px solid black">
+                <Thead bg="gray.600">
+                  <Tr>
+                    <Th color="white" border="1px solid black">Name of Student/Advisee</Th>
+                    <Th color="white" border="1px solid black">Course and Year</Th>
+                    <Th color="white" border="1px solid black">Date</Th>
+                    <Th color="white" border="1px solid black">Case Presented</Th>
+                    <Th color="white" border="1px solid black">Intervention/Action Taken</Th>
+                    <Th color="white" border="1px solid black">Remarks</Th>
+                    <Th color="white" border="1px solid black">Signature</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {Array.from({ length: Math.max(15, consultLog.length) }).map((_, i) => {
+                    const entry = consultLog[i];
+                    return (
+                      <Tr key={i} height="34px">
+                        <Td border="1px solid black">{i + 1}. {entry?.studentName || ''}</Td>
+                        <Td border="1px solid black">{entry?.studentSection || ''}</Td>
+                        <Td border="1px solid black">{entry?.date || ''}</Td>
+                        <Td border="1px solid black">{entry?.casePresented || ''}</Td>
+                        <Td border="1px solid black">{entry?.interventionTaken || ''}</Td>
+                        <Td border="1px solid black">{entry?.remarks || ''}</Td>
+                        <Td border="1px solid black" fontSize="xs">
+                          {entry?.completedAt ? `Signed ${new Date(entry.completedAt).toLocaleDateString()}` : ''}
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+
+              <HStack justifyContent="space-between" mt={4} fontSize="xs">
+                <Text>VAA-FM-035</Text>
+                <Text>Rev.1/01-15-20</Text>
+              </HStack>
+            </Box>
+          </Box>
+        )}
       </main>
     </div>
   );
-}
+};
+
+export default FacultyDashboard;

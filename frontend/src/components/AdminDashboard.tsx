@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { cohortConfig } from '../data/cohortConfig';
 import { 
   Box, Heading, Text, Button as ChakraButton, VStack, Input, FormControl, FormLabel, 
   useToast, Select, HStack, Flex, Divider, Table, Thead, Tbody, Tr, Th, Td, Badge, useColorMode, useColorModeValue,
@@ -28,6 +29,9 @@ export default function AdminDashboard() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [facultySearch, setFacultySearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [filterProgram, setFilterProgram] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterSection, setFilterSection] = useState('');
   const [role, setRole] = useState('FACULTY'); 
   const [allUsers, setAllUsers] = useState<any[]>([]);
   // const [selectedQr, setSelectedQr] = useState({ hash: '', name: '' }); 
@@ -217,10 +221,11 @@ export default function AdminDashboard() {
             {activePage === 'faculty' && "Faculty Roster & Live Status"}
             {activePage === 'appointments' && "Appointment Management"}
             {activePage === 'verification' && "Account Verification Queue"}
+            {activePage === 'students' && "Student Management"}
           </Heading>
           <Text color={mutedText} mt={1}>Welcome back, {userName}</Text>
-          </Box>
         </Box>
+      
 
         {activePage === 'home' && (
           <Box display="flex" gap={8} flexDir={{ base: 'column', xl: 'row' }}>
@@ -329,27 +334,56 @@ export default function AdminDashboard() {
             </Table>
           </Box>
         )}
+        
         {activePage === 'students' && (
           <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
-            <Input
-              placeholder="Search by name, School ID, or section..."
-              value={studentSearch}
-              onChange={(e) => setStudentSearch(e.target.value)}
-              mb={4}
-              maxW="400px"
-              color={textColor}
-              borderColor={borderColor}
-            />
+            <HStack spacing={3} mb={4}>
+              <Select
+                placeholder="Program"
+                value={filterProgram}
+                onChange={(e) => { setFilterProgram(e.target.value); setFilterYear(''); setFilterSection(''); }}
+                maxW="180px" color={textColor} borderColor={borderColor}
+              >
+                {Object.keys(cohortConfig).map(prog => <option key={prog} value={prog}>{prog}</option>)}
+              </Select>
+
+              <Select
+                placeholder="Year"
+                value={filterYear}
+                onChange={(e) => { setFilterYear(e.target.value); setFilterSection(''); }}
+                isDisabled={!filterProgram}
+                maxW="120px" color={textColor} borderColor={borderColor}
+              >
+                {filterProgram && Object.keys(cohortConfig[filterProgram]).map(y => <option key={y} value={y}>{y}</option>)}
+              </Select>
+
+              <Select
+                placeholder="Section"
+                value={filterSection}
+                onChange={(e) => setFilterSection(e.target.value)}
+                isDisabled={!filterYear}
+                maxW="120px" color={textColor} borderColor={borderColor}
+              >
+                {filterProgram && filterYear && cohortConfig[filterProgram][filterYear].map(sec => <option key={sec} value={sec}>{sec}</option>)}
+              </Select>
+
+              <Input
+                placeholder="Search by name..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                color={textColor} borderColor={borderColor}
+              />
+            </HStack>
+
             <Table variant="simple" size="sm">
               <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>School ID</Th><Th color={mutedText}>Program / Section</Th><Th color={mutedText}>Email</Th></Tr></Thead>
               <Tbody>
                 {allUsers
                   .filter(u => u.role === 'STUDENT')
-                  .filter(u =>
-                    u.name.toLowerCase().includes(studentSearch.toLowerCase()) ||
-                    (u.schoolId || '').toLowerCase().includes(studentSearch.toLowerCase()) ||
-                    (u.programPosition || '').toLowerCase().includes(studentSearch.toLowerCase())
-                  )
+                  .filter(u => !filterProgram || u.programPosition?.startsWith(filterProgram))
+                  .filter(u => !filterYear || u.programPosition?.includes(` ${filterYear}`))
+                  .filter(u => !filterSection || u.programPosition?.endsWith(filterSection))
+                  .filter(u => u.name.toLowerCase().includes(studentSearch.toLowerCase()))
                   .map(student => (
                     <Tr key={student._id}>
                       <Td fontWeight="bold" color={textColor}>{student.name}</Td>
@@ -392,9 +426,9 @@ export default function AdminDashboard() {
 
         {activePage === 'verification' && (
         <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
-          <Text mb={4} color={mutedText}>
-            <em>Note for Panel:</em> This queue shows students who registered without an official School ID (e.g. recent transferees), pending manual verification.
-          </Text>
+          {/* <Text mb={4} color={mutedText}>
+            <em>Note:</em> This queue shows students who registered without an official School ID (e.g. recent transferees), pending manual verification.
+          </Text> */}
           <Divider mb={4} borderColor={borderColor}/>
           <Table variant="simple" size="sm">
             <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Email</Th><Th color={mutedText}>Program</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>
@@ -439,8 +473,8 @@ export default function AdminDashboard() {
             <ChakraButton colorScheme="green" onClick={submitVerification}>Confirm Verification</ChakraButton>
           </ModalBody>
         </ModalContent>
-      </Modal>
-
+        </Modal>
+      </Box>
     </Flex>
   );
 }
