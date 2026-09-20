@@ -8,6 +8,7 @@ const Appointment = require('../models/Appointment');
 const Announcement = require('../models/Announcement');
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
+const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -319,13 +320,14 @@ router.post('/appointment', async (req, res) => {
       });
     }
 
-    // Upstream Operating Hours Constraint: 7:30 AM (450 mins) to 4:00 PM (960 mins)
-    if (requestedMinutes < 450 || requestedMinutes > 960) {
-      return res.status(400).json({ 
-        error: `Booking Denied: Consultations are restricted to official operating hours (7:30 AM to 4:00 PM).` 
-      });
+        // Must fall inside the faculty member's declared consultation hours
+    const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
+    const withinHours = facultyHours.some(h =>
+      requestedMinutes >= timeToMinutes(h.startTime) && requestedMinutes < timeToMinutes(h.endTime)
+    );
+    if (!withinHours) {
+      return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
     }
-
     // 1. Fetch the professor's immovable academic classes for this day
     const dayClasses = await Schedule.find({ 
       facultyId: facultyId, 
@@ -485,7 +487,7 @@ router.get('/appointments/student/:studentName', async (req, res) => {
 });
 
 // Faculty sets/updates their consultation hours
-const timeToMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+// const timeToMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
 router.post('/consultation-hours', async (req, res) => {
   try {

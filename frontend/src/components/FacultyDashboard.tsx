@@ -135,13 +135,13 @@ export default function FacultyDashboard() {
   const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
   const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
   const updateBlock = (index: number, field: string, value: any) => {
-  const updated = [...consultBlocks];
-  updated[index] = { ...updated[index], [field]: value };
-  setConsultBlocks(updated);
+    const updated = [...consultBlocks];
+    updated[index] = { ...updated[index], [field]: value };
+    setConsultBlocks(updated);
   };
 
   const [consultLog, setConsultLog] = useState<any[]>([]);
-const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
+  const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
 
 const fetchLog = () => {
   fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-log/${userId}`)
@@ -163,7 +163,7 @@ const submitLogEntry = async (aptId: string) => {
     if (!response.ok) throw new Error(data.error);
     toast({ title: 'Consultation Logged', description: data.message, status: 'success' });
     fetchLog();
-    fetchAppointments(); // whatever function currently refreshes myAppointments
+    // fetchAppointments(); // whatever function currently refreshes myAppointments
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
   }
@@ -701,7 +701,7 @@ const saveConsultationHours = async () => {
         ─────────────────────────────────────────────────────────────── */}
 
         {activePage === "log" && (
-          <Box>
+          <Box h="100%" overflowY="auto" p={6}>
             {/* Approved consultations awaiting sign-off */}
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" mb={6} className="no-print">
               <Heading size="md" color={textColor} mb={4}>Awaiting Sign-Off</Heading>
@@ -787,6 +787,4 @@ const saveConsultationHours = async () => {
       </main>
     </div>
   );
-};
-
-export default FacultyDashboard;
+}
