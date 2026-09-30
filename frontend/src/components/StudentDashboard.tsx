@@ -15,6 +15,9 @@ const getStatusColor = (status: string) => {
   }
 };
 
+// Matches the dayOfWeek convention used on the faculty side (1 = Mon ... 6 = Sat)
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -26,6 +29,10 @@ export default function StudentDashboard() {
   const [studentSection, setStudentSection] = useState(localStorage.getItem('programPosition') || '');
 
   const [selectedFaculty, setSelectedFaculty] = useState('');
+  const [facultySearch, setFacultySearch] = useState('');
+  const [facultySchedule, setFacultySchedule] = useState<any[]>([]);
+  const [facultyConsultHours, setFacultyConsultHours] = useState<any[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
   const [aptDate, setAptDate] = useState('');
   const [aptTime, setAptTime] = useState('');
   const [aptReason, setAptReason] = useState('');
@@ -49,6 +56,7 @@ export default function StudentDashboard() {
   const borderColor = useColorModeValue('#dde3ec', '#1e3048');
   const textColor = useColorModeValue('#0f2240', '#e8f0fe');
   const mutedText = useColorModeValue('#6b7fa0', '#7a93b0');
+  const facultyRowHoverBg = useColorModeValue('gray.50', 'whiteAlpha.100');
 
   const fetchData = () => {
     fetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
@@ -79,6 +87,60 @@ export default function StudentDashboard() {
     const intervalId = setInterval(fetchData, 5000);
     return () => clearInterval(intervalId);
   }, [userName]);
+
+  // When a professor is chosen, pull their weekly hours so the student can pick
+  // a real open slot. We only ever read startTime/endTime/dayOfWeek from these
+  // responses below — subject, room, and any faculty-private notes are never
+  // rendered, regardless of what the API happens to include.
+  useEffect(() => {
+    if (!selectedFaculty) {
+      setFacultySchedule([]);
+      setFacultyConsultHours([]);
+      return;
+    }
+    setScheduleLoading(true);
+    Promise.all([
+      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${selectedFaculty}`).then(res => res.json()),
+      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${selectedFaculty}`).then(res => res.json())
+    ])
+      .then(([schedule, consultHours]) => {
+        setFacultySchedule(Array.isArray(schedule) ? schedule : []);
+        setFacultyConsultHours(Array.isArray(consultHours) ? consultHours : []);
+      })
+      .catch(() => {
+        setFacultySchedule([]);
+        setFacultyConsultHours([]);
+      })
+      .finally(() => setScheduleLoading(false));
+  }, [selectedFaculty]);
+
+  // Build a day-by-day list of blocked ("Class Hours") vs bookable ("Consultation Hours")
+  // time ranges. Only startTime/endTime/dayOfWeek are read from the source objects.
+  const weeklyHoursByDay = React.useMemo(() => {
+    const byDay: Record<number, { label: string; start: string; end: string }[]> = {};
+    for (let i = 0; i < 6; i++) byDay[i] = [];
+
+    facultySchedule.forEach((sched: any) => {
+      const dayIndex = (sched.dayOfWeek ?? 1) - 1;
+      if (dayIndex < 0 || dayIndex > 5) return;
+      byDay[dayIndex].push({ label: 'Class Hours', start: sched.startTime, end: sched.endTime });
+    });
+
+    facultyConsultHours.forEach((block: any) => {
+      const dayIndex = (block.dayOfWeek ?? 1) - 1;
+      if (dayIndex < 0 || dayIndex > 5) return;
+      byDay[dayIndex].push({ label: 'Consultation Hours', start: block.startTime, end: block.endTime });
+    });
+
+    Object.values(byDay).forEach(entries => entries.sort((a, b) => (a.start > b.start ? 1 : -1)));
+    return byDay;
+  }, [facultySchedule, facultyConsultHours]);
+
+  const filteredFaculty = faculty.filter(f =>
+    f.name.toLowerCase().includes(facultySearch.toLowerCase())
+  );
+
+  const selectedFacultyObj = faculty.find(f => f._id === selectedFaculty);
 
   const handleAppointmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,20 +289,47 @@ export default function StudentDashboard() {
           )}
 
           {activePage === 'appointments' && (
-            <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" maxW="600px">
-              <form onSubmit={handleAppointmentSubmit}>
-                <VStack spacing={4}>
-                  <FormControl isRequired><FormLabel color={textColor}>Your Section</FormLabel><Input value={studentSection} onChange={(e) => setStudentSection(e.target.value)} placeholder="e.g. BS INFO 3D" color={textColor} borderColor={borderColor}/></FormControl>
-                  <FormControl isRequired><FormLabel color={textColor}>Select Professor</FormLabel>
-                    <Select placeholder="Choose..." value={selectedFaculty} onChange={(e) => setSelectedFaculty(e.target.value)} color={textColor} borderColor={borderColor}>
-                      {faculty.map(f => (
-                        <option key={f._id} value={f._id} disabled={f.currentStatus === 'ABSENT' || f.currentStatus === 'ON_LEAVE'}>
-                          {f.name} {f.currentStatus === 'ABSENT' || f.currentStatus === 'ON_LEAVE' ? '(Unavailable)' : ''}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <HStack w="100%" alignItems="flex-start">
+            <Flex gap={6} align="flex-start" wrap="wrap">
+              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" w="600px" maxW="100%">
+                <form onSubmit={handleAppointmentSubmit}>
+                  <VStack spacing={4}>
+                    <FormControl isRequired><FormLabel color={textColor}>Your Section</FormLabel><Input value={studentSection} onChange={(e) => setStudentSection(e.target.value)} placeholder="e.g. BS INFO 3D" color={textColor} borderColor={borderColor}/></FormControl>
+                    <FormControl isRequired>
+                      <FormLabel color={textColor}>Select Professor</FormLabel>
+                      <Input
+                        placeholder="Search professor by name..."
+                        value={selectedFacultyObj ? selectedFacultyObj.name : facultySearch}
+                        onChange={(e) => { setFacultySearch(e.target.value); setSelectedFaculty(''); }}
+                        color={textColor} borderColor={borderColor} mb={2}
+                      />
+                      {!selectedFaculty && facultySearch && (
+                        <Box borderWidth="1px" borderColor={borderColor} borderRadius="md" maxH="180px" overflowY="auto">
+                          {filteredFaculty.length === 0 && (
+                            <Text p={3} fontSize="sm" color={mutedText}>No professors found.</Text>
+                          )}
+                          {filteredFaculty.map(f => {
+                            const unavailable = f.currentStatus === 'ABSENT' || f.currentStatus === 'ON_LEAVE';
+                            return (
+                              <Box
+                                key={f._id}
+                                p={3}
+                                cursor={unavailable ? 'not-allowed' : 'pointer'}
+                                opacity={unavailable ? 0.5 : 1}
+                                _hover={unavailable ? {} : { bg: facultyRowHoverBg }}
+                                onClick={() => { if (!unavailable) { setSelectedFaculty(f._id); setFacultySearch(''); } }}
+                              >
+                                <Text fontWeight="600" color={textColor} fontSize="sm">{f.name} {unavailable ? '(Unavailable)' : ''}</Text>
+                                <Text fontSize="xs" color={mutedText}>{f.programPosition}</Text>
+                              </Box>
+                            );
+                          })}
+                        </Box>
+                      )}
+                      {selectedFaculty && (
+                        <ChakraButton size="xs" variant="link" colorScheme="blue" onClick={() => { setSelectedFaculty(''); setFacultySearch(''); }}>Change professor</ChakraButton>
+                      )}
+                    </FormControl>
+                    <HStack w="100%" alignItems="flex-start">
   <FormControl isRequired>
     <FormLabel color={textColor}>Date</FormLabel>
     <Input type="date" value={aptDate} onChange={(e) => setAptDate(e.target.value)} color={textColor} borderColor={borderColor}/>
@@ -253,13 +342,49 @@ export default function StudentDashboard() {
     <Text fontSize="xs" color={mutedText} mt={1}>7:30 AM - 4:00 PM</Text>
   </FormControl>
 </HStack>
-                  <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
-                    <Textarea placeholder="e.g., Thesis consultation, Grade inquiry..." value={aptReason} onChange={(e) => setAptReason(e.target.value)} color={textColor} borderColor={borderColor} />
-                  </FormControl>
-                  <ChakraButton type="submit" colorScheme="blue" w="100%" isLoading={isSubmitting} size="lg">Submit Appointment Request</ChakraButton>
-                </VStack>
-              </form>
-            </Box>
+                    <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
+                      <Textarea placeholder="e.g., Thesis consultation, Grade inquiry..." value={aptReason} onChange={(e) => setAptReason(e.target.value)} color={textColor} borderColor={borderColor} />
+                    </FormControl>
+                    <ChakraButton type="submit" colorScheme="blue" w="100%" isLoading={isSubmitting} size="lg">Submit Appointment Request</ChakraButton>
+                  </VStack>
+                </form>
+              </Box>
+
+              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1" minW="280px">
+                <Heading size="sm" color={textColor} mb={4}>
+                  {selectedFacultyObj ? `${selectedFacultyObj.name}'s Weekly Hours` : 'Select a professor to view their hours'}
+                </Heading>
+                {!selectedFaculty && (
+                  <Text fontSize="sm" color={mutedText}>Search and choose a professor on the left to see when they're in class versus available for consultation.</Text>
+                )}
+                {selectedFaculty && scheduleLoading && (
+                  <Text fontSize="sm" color={mutedText}>Loading schedule...</Text>
+                )}
+                {selectedFaculty && !scheduleLoading && (
+                  <VStack align="stretch" spacing={3}>
+                    {DAY_LABELS.map((day, i) => (
+                      <Box key={day}>
+                        <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>{day}</Text>
+                        {weeklyHoursByDay[i].length === 0 ? (
+                          <Text fontSize="xs" color={mutedText} pl={2}>No scheduled hours</Text>
+                        ) : (
+                          <VStack align="stretch" spacing={1} pl={2}>
+                            {weeklyHoursByDay[i].map((entry, idx) => (
+                              <HStack key={idx} justify="space-between">
+                                <Badge colorScheme={entry.label === 'Class Hours' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md">
+                                  {entry.label}
+                                </Badge>
+                                <Text fontSize="xs" color={mutedText}>{formatTime(entry.start)} – {formatTime(entry.end)}</Text>
+                              </HStack>
+                            ))}
+                          </VStack>
+                        )}
+                      </Box>
+                    ))}
+                  </VStack>
+                )}
+              </Box>
+            </Flex>
           )}
 
           {activePage === 'requests' && (

@@ -6,11 +6,16 @@ const User = require('../models/User');
 const Schedule = require('../models/Schedule');
 const Appointment = require('../models/Appointment');
 const Announcement = require('../models/Announcement');
+const PersonalEvent = require('../models/PersonalEvent');
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
+const timeToMinutes = (time) => {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+};
 
 // =========================================================================
 // === ROUTES ===
@@ -80,7 +85,7 @@ router.post('/login', async (req, res) => {
     // 1. Find the user
     const user = await User.findOne({ email: email.toLowerCase() });
 
-    console.log("DIAGNOSTIC - User found:", user ? "YES" : "NO", "| Email searched:", email.toLowerCase());
+    // console.log("DIAGNOSTIC - User found:", user ? "YES" : "NO", "| Email searched:", email.toLowerCase());
     
     if (!user) {
       return res.status(400).json({ error: 'Invalid email or password.' });
@@ -96,7 +101,7 @@ router.post('/login', async (req, res) => {
 
     // 3. Cryptographically verify the password (Declared only ONCE)
     const isMatch = await bcrypt.compare(password, user.password);
-    console.log("DIAGNOSTIC - Password Match:", isMatch);
+    // console.log("DIAGNOSTIC - Password Match:", isMatch);
     
     if (!isMatch) {
       return res.status(400).json({ error: 'Invalid email or password.' });
@@ -520,6 +525,67 @@ router.post('/consultation-hours', async (req, res) => {
   }
 });
 
+router.post('/personal-event', async (req, res) => {
+  try {
+    const { facultyId, title, dayOfWeek, startTime, endTime, note } = req.body;
+
+    // Must not collide with fixed Class or Consultation Hours blocks
+    const classes = await Schedule.find({ facultyId, dayOfWeek });
+    const consultBlocks = await ConsultationHours.find({ facultyId, dayOfWeek });
+    const locked = [...classes, ...consultBlocks];
+
+    const conflict = locked.some(b =>
+      timeToMinutes(startTime) < timeToMinutes(b.endTime) &&
+      timeToMinutes(b.startTime) < timeToMinutes(endTime)
+    );
+    if (conflict) {
+      return res.status(400).json({ error: 'This time overlaps a fixed Class or Consultation Hours block and cannot be edited.' });
+    }
+
+    const event = await PersonalEvent.create({ facultyId, title, dayOfWeek, startTime, endTime, note });
+    res.json({ message: 'Note added.', event });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+router.get('/personal-events/:facultyId', async (req, res) => {
+  const events = await PersonalEvent.find({ facultyId: req.params.facultyId });
+  res.json(events);
+});
+
+router.delete('/personal-event/:id', async (req, res) => {
+  await PersonalEvent.findByIdAndDelete(req.params.id);
+  res.json({ message: 'Note removed.' });
+});
+
+router.get('/faculty/:id/public-schedule', async (req, res) => {
+  try {
+    const classes = await Schedule.find({ facultyId: req.params.id });
+    const consultHours = await ConsultationHours.find({ facultyId: req.params.id });
+
+    // Class blocks: strip subject/room entirely, just mark the hours as unavailable
+    const publicClasses = classes.map(c => ({
+      dayOfWeek: c.dayOfWeek,
+      startTime: c.startTime,
+      endTime: c.endTime,
+      label: 'Class (Unavailable)'
+    }));
+
+    // Consultation blocks: these are exactly what students need to see in full
+    const publicConsult = consultHours.map(c => ({
+      dayOfWeek: c.dayOfWeek,
+      startTime: c.startTime,
+      endTime: c.endTime,
+      label: 'Consultation Hours (Book Here)'
+    }));
+
+    res.json([...publicClasses, ...publicConsult]);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching schedule.' });
+  }
+});
+
 // Complete a consultation and record the log entry (digital sign-off)
 router.patch('/appointment/:id/complete', async (req, res) => {
   try {
@@ -552,7 +618,7 @@ router.get('/consultation-log/:facultyId', async (req, res) => {
     const log = await Appointment.find({ 
       facultyId: req.params.facultyId, 
       status: 'COMPLETED' 
-    }).sort({ date: 1, time: 1 });
+    }).sort({ completedAt: 1 });
     res.json(log);
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching consultation log.' });

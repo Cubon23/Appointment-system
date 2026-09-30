@@ -86,6 +86,7 @@ export default function LandingPage() {
       localStorage.setItem('userId', data._id);
       localStorage.setItem('userName', data.name);
       localStorage.setItem('userRole', data.role);
+      localStorage.setItem('token', data.token);
 
       toast({ title: 'Login Successful', status: 'success', duration: 2000 });
 

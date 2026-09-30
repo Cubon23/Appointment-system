@@ -14,7 +14,7 @@ import {
 
 type Page      = "status" | "schedule" | "requests" | "log"; 
 type ViewMode  = "week" | "day";
-type EventType = "teaching" | "appointment";
+type EventType = "teaching" | "appointment" | "consultation";
 
 interface ScheduleEvent {
   id:          string;
@@ -115,11 +115,13 @@ export default function FacultyDashboard() {
   const [myLocation, setMyLocation] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [mySchedule, setMySchedule] = useState<any[]>([]);
+  const [myConsultHours, setMyConsultHours] = useState<any[]>([]);
   const [myAppointments, setMyAppointments] = useState<any[]>([]);
   const hasSyncedRef = useRef(false);
   const [notice, setNotice] = useState('');
   const [flagDate, setFlagDate] = useState('');
   const [flagReason, setFlagReason] = useState('');
+  const [personalEvents, setPersonalEvents] = useState<any[]>([]);
 
   const [consultBlocks, setConsultBlocks] = useState<{dayOfWeek: number, startTime: string, endTime: string}[]>([]);
 
@@ -131,6 +133,15 @@ export default function FacultyDashboard() {
   }, 0);
   const totalHours = (totalMinutes / 60).toFixed(1);
   const isValidTotal = totalMinutes === 240;
+
+  // Once consultation hours are saved, the "Add Block" editor is closed.
+  const hasConsultHours = myConsultHours.length > 0;
+  const savedConsultMinutes = myConsultHours.reduce((sum, b) => {
+    const [sh, sm] = b.startTime.split(':').map(Number);
+    const [eh, em] = b.endTime.split(':').map(Number);
+    return sum + ((eh * 60 + em) - (sh * 60 + sm));
+  }, 0);
+  const savedConsultHours = (savedConsultMinutes / 60).toFixed(1);
 
   const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
   const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
@@ -182,6 +193,8 @@ const saveConsultationHours = async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
     toast({ title: 'Saved', description: data.message, status: 'success' });
+    setConsultBlocks([]);
+    fetchData(); // refresh so the editor closes and the calendar colors update immediately
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
   }
@@ -209,6 +222,9 @@ const saveConsultationHours = async () => {
     teach:     "#1d4ed8",
     teachBg:   dk ? "#162340"   : "#dbeafe",
     teachText: dk ? "#93c5fd"   : "#1e40af",
+    consult:     "#8b5cf6", // purple, distinct from teach (blue) and appt (green)
+    consultBg:   dk ? "#241a45" : "#ede9fe",
+    consultText: dk ? "#c4b5fd" : "#5b21b6",
     appt:      "#059669",
     apptBg:    dk ? "#0d2e22"   : "#d1fae5",
     apptText:  dk ? "#6ee7b7"   : "#065f46",
@@ -247,9 +263,13 @@ const saveConsultationHours = async () => {
         .then(res => res.json())
         .then(data => setMyAppointments(data));
         
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${userId}`)
+            fetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${userId}`)
         .then(res => res.json())
         .then(data => setMySchedule(data));
+
+      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${userId}`)
+        .then(res => res.json())
+        .then(data => setMyConsultHours(data));
     }
   };
 
@@ -316,7 +336,22 @@ const saveConsultationHours = async () => {
   // ── DYNAMIC DATA TRANSLATOR ──────────────────────────────────
   const dynamicEvents = useMemo(() => {
     const generated: ScheduleEvent[] = [];
-    
+
+    myConsultHours.forEach(block => {
+      const [sH, sM] = block.startTime.split(':').map(Number);
+      const [eH, eM] = block.endTime.split(':').map(Number);
+      generated.push({
+        id: block._id,
+        subject: "Consultation Hours",
+        section: "",
+        room: "",
+        type: "consultation",
+        dayOfWeek: block.dayOfWeek - 1,
+        startHour: sH, startMinute: sM,
+        endHour: eH, endMinute: eM
+      });
+    });
+
     mySchedule.forEach(sched => {
       const [sH, sM] = sched.startTime.split(':').map(Number);
       const [eH, eM] = sched.endTime.split(':').map(Number);
@@ -360,8 +395,8 @@ const saveConsultationHours = async () => {
           generated.push({
               id: apt._id,
               subject: apt.studentName,
-              section: apt.reason,
-              room: "Faculty Office", 
+              section: apt.studentSection || "",
+              room: apt.reason || "Faculty Office", 
               type: "appointment",
               dayOfWeek: dayIndex,
               startHour: sH,
@@ -373,7 +408,7 @@ const saveConsultationHours = async () => {
     });
 
     return generated;
-  }, [mySchedule, myAppointments, weekDates]);
+  }, [mySchedule, myAppointments, weekDates, myConsultHours]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -555,12 +590,13 @@ const saveConsultationHours = async () => {
                         {dayEvts.map(event => {
                           const { top, height } = getEventPos(event);
                           const isTeach = event.type === "teaching";
-                          const accent = isTeach ? C.teach : C.appt;
-                          const bg = isTeach ? C.teachBg : C.apptBg;
-                          const textCol = isTeach ? C.teachText : C.apptText;
+                          const isConsult = event.type === "consultation";
+                          const accent = isTeach ? C.teach : isConsult ? C.consult : C.appt;
+                          const bg = isTeach ? C.teachBg : isConsult ? C.consultBg : C.apptBg;
+                          const textCol = isTeach ? C.teachText : isConsult ? C.consultText : C.apptText;
 
                           return (
-                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}`} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
+                            <div key={event.id} title={[event.subject, event.section, event.room].filter(Boolean).join(" · ")} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
                               <div style={{ fontSize: "11px", fontWeight: 700, color: textCol, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.subject}</div>
                               {height > 44 && (<div style={{ fontSize: "10px", color: textCol, opacity: 0.72, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.section}</div>)}
                               {height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
@@ -576,7 +612,7 @@ const saveConsultationHours = async () => {
               <Flex justifyContent="space-between" alignItems="center">
                 <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
                   <span style={{ fontSize: "10px", color: C.textMid, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Legend</span>
-                  {[{ color: C.teach, label: "Teaching Block" }, { color: C.appt, label: "Approved Appointment" }].map(({ color, label }) => (
+                  {[{ color: C.teach, label: "Teaching Block" }, { color: C.appt, label: "Approved Appointment" }, { color: C.consult, label: "Consultation Hours" }].map(({ color, label }) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                       <div style={{ width: "10px", height: "10px", borderRadius: "3px", background: color }} />
                       <span style={{ fontSize: "11px", color: C.textMid }}>{label}</span>
@@ -621,10 +657,9 @@ const saveConsultationHours = async () => {
                 </VStack>
               </Box>
 
-              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
+              {/* <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
                 <Heading size="md" color={textColor} mb={6}>Fixed Consultation Hours</Heading>
-                {/* Simple day+time-range inputs, one row per day, saved via POST /consultation-hours */}
-              </Box>
+              </Box> */}
               
               <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
                 <Heading size="md" color={textColor} mb={6}>Post a Notice (Students)</Heading>
@@ -641,24 +676,45 @@ const saveConsultationHours = async () => {
 
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
               <Heading size="md" color={textColor} mb={2}>Fixed Consultation Hours</Heading>
-              <Text fontSize="sm" color={mutedText} mb={4}>Must total exactly 4 hours per week, distributed however you like.</Text>
-              <VStack spacing={3} align="stretch">
-                {consultBlocks.map((block, i) => (
-                  <HStack key={i}>
-                    <Select size="sm" value={block.dayOfWeek} onChange={(e) => updateBlock(i, 'dayOfWeek', Number(e.target.value))}>
-                      {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
-                    </Select>
-                    <Input size="sm" type="time" value={block.startTime} onChange={(e) => updateBlock(i, 'startTime', e.target.value)} />
-                    <Input size="sm" type="time" value={block.endTime} onChange={(e) => updateBlock(i, 'endTime', e.target.value)} />
-                    <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
-                  </HStack>
-                ))}
-                <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
-                <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
-                  Total: {totalHours} / 4.0 hours
-                </Text>
-                <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
-              </VStack>
+              {hasConsultHours ? (
+                <>
+                  <Text fontSize="sm" color={mutedText} mb={4}>
+                    Your consultation hours are set and shown on your Master Schedule.
+                  </Text>
+                  <VStack spacing={2} align="stretch">
+                    {[...myConsultHours]
+                      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
+                      .map((b) => (
+                        <HStack key={b._id} justify="space-between" px={3} py={2} borderWidth="1px" borderColor={borderColor} borderRadius="md" borderLeftWidth="4px" borderLeftColor="purple.400">
+                          <Text fontWeight="semibold" color={textColor}>{DAY_LABELS[b.dayOfWeek - 1]}</Text>
+                          <Text color={textColor}>{formatTime(b.startTime)} – {formatTime(b.endTime)}</Text>
+                        </HStack>
+                      ))}
+                    <Text fontSize="sm" fontWeight="bold" color="green.500">Total: {savedConsultHours} / 4.0 hours</Text>
+                  </VStack>
+                </>
+              ) : (
+                <>
+                  <Text fontSize="sm" color={mutedText} mb={4}>Must total exactly 4 hours per week, distributed however you like.</Text>
+                  <VStack spacing={3} align="stretch">
+                    {consultBlocks.map((block, i) => (
+                      <HStack key={i}>
+                        <Select size="sm" value={block.dayOfWeek} onChange={(e) => updateBlock(i, 'dayOfWeek', Number(e.target.value))}>
+                          {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
+                        </Select>
+                        <Input size="sm" type="time" value={block.startTime} onChange={(e) => updateBlock(i, 'startTime', e.target.value)} />
+                        <Input size="sm" type="time" value={block.endTime} onChange={(e) => updateBlock(i, 'endTime', e.target.value)} />
+                        <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
+                      </HStack>
+                    ))}
+                    <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
+                    <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
+                      Total: {totalHours} / 4.0 hours
+                    </Text>
+                    <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
+                  </VStack>
+                </>
+              )}
             </Box>
           </div>
         )}
