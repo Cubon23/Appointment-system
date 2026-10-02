@@ -14,7 +14,7 @@ import {
 
 type Page      = "status" | "schedule" | "requests" | "log"; 
 type ViewMode  = "week" | "day";
-type EventType = "teaching" | "appointment" | "consultation";
+type EventType = "teaching" | "appointment" | "consultation" | "note";
 
 interface ScheduleEvent {
   id:          string;
@@ -83,6 +83,30 @@ function isToday(date: Date): boolean {
   );
 }
 
+function toISODate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function timeToMinutes(t: string): number {
+  if (!t) return 0;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function minutesToTime(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// True if the time range aStart-aEnd overlaps bStart-bEnd at all (times given as 'HH:MM')
+function timeRangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
+  return timeToMinutes(aStart) < timeToMinutes(bEnd) && timeToMinutes(bStart) < timeToMinutes(aEnd);
+}
+
 function getEventPos(event: ScheduleEvent): { top: number; height: number } {
   const startSlot = (event.startHour - START_HOUR) * 2 + event.startMinute / 30;
   const endSlot   = (event.endHour   - START_HOUR) * 2 + event.endMinute   / 30;
@@ -121,7 +145,10 @@ export default function FacultyDashboard() {
   const [notice, setNotice] = useState('');
   const [flagDate, setFlagDate] = useState('');
   const [flagReason, setFlagReason] = useState('');
+  // Faculty's own private calendar notes — date-specific (not recurring), e.g. { _id, date: 'YYYY-MM-DD', startTime, endTime, text }
   const [personalEvents, setPersonalEvents] = useState<any[]>([]);
+  const [noteModal, setNoteModal] = useState<{ date: string; startTime: string; endTime: string; text: string; editingId: string | null } | null>(null);
+  const [isSavingNote, setIsSavingNote] = useState(false);
 
   const [consultBlocks, setConsultBlocks] = useState<{dayOfWeek: number, startTime: string, endTime: string}[]>([]);
 
@@ -133,15 +160,6 @@ export default function FacultyDashboard() {
   }, 0);
   const totalHours = (totalMinutes / 60).toFixed(1);
   const isValidTotal = totalMinutes === 240;
-
-  // Once consultation hours are saved, the "Add Block" editor is closed.
-  const hasConsultHours = myConsultHours.length > 0;
-  const savedConsultMinutes = myConsultHours.reduce((sum, b) => {
-    const [sh, sm] = b.startTime.split(':').map(Number);
-    const [eh, em] = b.endTime.split(':').map(Number);
-    return sum + ((eh * 60 + em) - (sh * 60 + sm));
-  }, 0);
-  const savedConsultHours = (savedConsultMinutes / 60).toFixed(1);
 
   const addBlock = () => setConsultBlocks([...consultBlocks, { dayOfWeek: 1, startTime: '', endTime: '' }]);
   const removeBlock = (index: number) => setConsultBlocks(consultBlocks.filter((_, i) => i !== index));
@@ -193,8 +211,6 @@ const saveConsultationHours = async () => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
     toast({ title: 'Saved', description: data.message, status: 'success' });
-    setConsultBlocks([]);
-    fetchData(); // refresh so the editor closes and the calendar colors update immediately
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
   }
@@ -222,12 +238,15 @@ const saveConsultationHours = async () => {
     teach:     "#1d4ed8",
     teachBg:   dk ? "#162340"   : "#dbeafe",
     teachText: dk ? "#93c5fd"   : "#1e40af",
-    consult:     "#8b5cf6", // purple, distinct from teach (blue) and appt (green)
-    consultBg:   dk ? "#241a45" : "#ede9fe",
+    consult: "#8b5cf6", // purple, distinct from teach (blue) and appt (green)
+    consultBg:   dk ? "#241b42" : "#ede9fe",
     consultText: dk ? "#c4b5fd" : "#5b21b6",
     appt:      "#059669",
     apptBg:    dk ? "#0d2e22"   : "#d1fae5",
     apptText:  dk ? "#6ee7b7"   : "#065f46",
+    note:      "#d97706", // amber, distinct from the three existing event colors
+    noteBg:    dk ? "#3a2a0d"   : "#fef3c7",
+    noteText:  dk ? "#fcd34d"   : "#92400e",
     todayBorder: "#2563eb",
     todayHead:   dk ? "#0f2745" : "#eff6ff",
     todayBand:   dk ? "rgba(37,99,235,0.06)" : "rgba(219,234,254,0.28)",
@@ -270,6 +289,11 @@ const saveConsultationHours = async () => {
       fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${userId}`)
         .then(res => res.json())
         .then(data => setMyConsultHours(data));
+
+      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${userId}`)
+        .then(res => res.json())
+        .then(data => setPersonalEvents(Array.isArray(data) ? data : []))
+        .catch(() => setPersonalEvents([]));
     }
   };
 
@@ -312,6 +336,68 @@ const saveConsultationHours = async () => {
       });
       toast({ title: 'Future absence flagged!', status: 'success' });
     } catch (error) {}
+  };
+
+  // A note can't be placed on top of a teaching block or consultation hours for that day/date.
+  // (Overlapping an already-approved appointment is still blocked too, to keep the slot unambiguous.)
+  const isSlotBlocked = (dayIndex: number, date: Date, startTime: string, endTime: string, ignoreNoteId?: string | null): boolean => {
+    const dayEvts = dynamicEvents.filter(e => e.dayOfWeek === dayIndex && e.type !== "note");
+    return dayEvts.some(e => {
+      const evStart = `${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')}`;
+      const evEnd = `${String(e.endHour).padStart(2, '0')}:${String(e.endMinute).padStart(2, '0')}`;
+      return timeRangesOverlap(startTime, endTime, evStart, evEnd);
+    });
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteModal || !userId) return;
+    const { date, startTime, endTime, text, editingId } = noteModal;
+    if (!text.trim()) {
+      toast({ title: 'Note text is required', status: 'warning' }); return;
+    }
+    if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+      toast({ title: 'End time must be after start time', status: 'warning' }); return;
+    }
+    const dow = (new Date(date).getDay() + 6) % 7; // 0=Mon ... matches DAY_LABELS indexing
+    if (isSlotBlocked(dow, new Date(date), startTime, endTime, editingId)) {
+      toast({ title: 'That time overlaps class or consultation hours', description: 'Notes can only be added to open time slots.', status: 'error', duration: 6000 });
+      return;
+    }
+
+    setIsSavingNote(true);
+    try {
+      const url = editingId
+        ? `${import.meta.env.VITE_API_URL}/api/faculty/notes/${editingId}`
+        : `${import.meta.env.VITE_API_URL}/api/faculty/notes/${userId}`;
+      const response = await fetch(url, {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, startTime, endTime, text: text.trim() })
+      });
+      if (!response.ok) throw new Error('Failed to save note');
+      toast({ title: editingId ? 'Note updated' : 'Note added', status: 'success' });
+      setNoteModal(null);
+      fetchData();
+    } catch (error: any) {
+      toast({ title: 'Could not save note', description: error.message, status: 'error' });
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  const handleDeleteNote = async () => {
+    if (!noteModal?.editingId) return;
+    setIsSavingNote(true);
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${noteModal.editingId}`, { method: 'DELETE' });
+      toast({ title: 'Note deleted', status: 'success' });
+      setNoteModal(null);
+      fetchData();
+    } catch (error) {
+      toast({ title: 'Could not delete note', status: 'error' });
+    } finally {
+      setIsSavingNote(false);
+    }
   };
 
   const updateAppointmentStatus = async (targetApt: any, newStatus: string) => {
@@ -395,8 +481,8 @@ const saveConsultationHours = async () => {
           generated.push({
               id: apt._id,
               subject: apt.studentName,
-              section: apt.studentSection || "",
-              room: apt.reason || "Faculty Office", 
+              section: apt.studentSection || '',
+              room: apt.reason,
               type: "appointment",
               dayOfWeek: dayIndex,
               startHour: sH,
@@ -509,8 +595,19 @@ const saveConsultationHours = async () => {
             {/* Toolbar */}
             <div style={{ padding: "14px 24px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, flexWrap: "wrap", gap: "12px" }}>
               <div>
-                <h1 style={{ fontSize: "16px", fontWeight: 700, margin: 0, letterSpacing: "-0.015em" }}>My Itinerary</h1>
-                <p style={{ fontSize: "11px", color: C.textMid, margin: "2px 0 0" }}>{weekLabel}</p>
+                {viewMode === "day" ? (
+                  <>
+                    <button onClick={() => setViewMode("week")} style={{ ...btnBase, background: "transparent", color: "#2563eb", fontSize: "11px", padding: 0, marginBottom: "2px", display: "flex", alignItems: "center", gap: "4px" }}>‹ Back to Week</button>
+                    <h1 style={{ fontSize: "16px", fontWeight: 700, margin: 0, letterSpacing: "-0.015em" }}>
+                      {weekDates[focusDay].toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+                    </h1>
+                  </>
+                ) : (
+                  <>
+                    <h1 style={{ fontSize: "16px", fontWeight: 700, margin: 0, letterSpacing: "-0.015em" }}>My Itinerary</h1>
+                    <p style={{ fontSize: "11px", color: C.textMid, margin: "2px 0 0" }}>{weekLabel}</p>
+                  </>
+                )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                 <div style={{ width: "1px", height: "24px", background: C.border }} />
@@ -530,7 +627,8 @@ const saveConsultationHours = async () => {
 
             {/* Schedule Grid */}
             <div style={{ padding: "20px", display: 'flex', flexDirection: 'column', gap: '24px' }}>
-              <div style={{ background: C.surface, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden", minWidth: "520px" }}>
+              <div style={{ overflowX: "auto", width: "100%" }}>
+              <div style={{ background: C.surface, borderRadius: "10px", border: `1px solid ${C.border}`, overflow: "hidden", minWidth: viewMode === "day" ? "340px" : "520px", maxWidth: viewMode === "day" ? "480px" : "none", margin: viewMode === "day" ? "0 auto" : "0" }}>
                 <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt }}>
                   <div style={{ width: "58px", flexShrink: 0, borderRight: `1px solid ${C.border}` }} />
                   {visibleDayIndices.map((di, col) => {
@@ -562,19 +660,34 @@ const saveConsultationHours = async () => {
                     const date = weekDates[di];
                     const active = isToday(date) && weekOffset === 0;
                     const dayEvts = dynamicEvents.filter(e => e.dayOfWeek === di);
+                    const isoDate = toISODate(date);
+                    const dayNotes = personalEvents.filter((n: any) => n.date === isoDate);
                     const isLast = col === visibleDayIndices.length - 1;
 
                     return (
                       <div 
                         key={di} 
-                        onClick={() => {
+                        onClick={(e) => {
                           if (viewMode === "week") {
                             setFocusDay(di);
                             setViewMode("day");
+                            return;
                           }
+                          // Day view: clicking an empty slot opens the add-note popup
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const offsetY = e.clientY - rect.top;
+                          const slotIndex = Math.max(0, Math.floor(offsetY / SLOT_PX));
+                          const startMin = START_HOUR * 60 + slotIndex * 30;
+                          const startTime = minutesToTime(startMin);
+                          const endTime = minutesToTime(Math.min(END_HOUR * 60, startMin + 60));
+                          if (isSlotBlocked(di, date, startTime, endTime)) {
+                            toast({ title: "That slot is occupied", description: "Notes can't be added on class or consultation hours.", status: "info", duration: 4000 });
+                            return;
+                          }
+                          setNoteModal({ date: isoDate, startTime, endTime, text: '', editingId: null });
                         }}
                         style={{ 
-                          flex: 1, position: "relative", borderRight: isLast ? "none" : `1px solid ${C.border}`, background: active ? C.todayBand : "transparent", cursor: viewMode === "week" ? "zoom-in" : "default", transition: "background 0.2s ease"
+                          flex: 1, position: "relative", borderRight: isLast ? "none" : `1px solid ${C.border}`, background: active ? C.todayBand : "transparent", cursor: viewMode === "week" ? "zoom-in" : "copy", transition: "background 0.2s ease"
                         }}
                         onMouseEnter={(e) => {
                           if (viewMode === "week" && !active) e.currentTarget.style.background = dk ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)";
@@ -596,10 +709,28 @@ const saveConsultationHours = async () => {
                           const textCol = isTeach ? C.teachText : isConsult ? C.consultText : C.apptText;
 
                           return (
-                            <div key={event.id} title={[event.subject, event.section, event.room].filter(Boolean).join(" · ")} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
+                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}`} onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
                               <div style={{ fontSize: "11px", fontWeight: 700, color: textCol, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.subject}</div>
                               {height > 44 && (<div style={{ fontSize: "10px", color: textCol, opacity: 0.72, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.section}</div>)}
                               {height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
+                            </div>
+                          );
+                        })}
+
+                        {dayNotes.map((note: any) => {
+                          const { top, height } = getEventPos({
+                            id: note._id, subject: note.text, section: '', room: '', type: 'note', dayOfWeek: di,
+                            startHour: Math.floor(timeToMinutes(note.startTime) / 60), startMinute: timeToMinutes(note.startTime) % 60,
+                            endHour: Math.floor(timeToMinutes(note.endTime) / 60), endMinute: timeToMinutes(note.endTime) % 60,
+                          });
+                          return (
+                            <div
+                              key={note._id}
+                              title={note.text}
+                              onClick={(e) => { e.stopPropagation(); setNoteModal({ date: note.date, startTime: note.startTime, endTime: note.endTime, text: note.text, editingId: note._id }); }}
+                              style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: C.noteBg, borderLeft: `3px solid ${C.note}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}
+                            >
+                              <div style={{ fontSize: "11px", fontWeight: 700, color: C.noteText, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {note.text}</div>
                             </div>
                           );
                         })}
@@ -608,11 +739,12 @@ const saveConsultationHours = async () => {
                   })}
                 </div>
               </div>
+              </div>
 
-              <Flex justifyContent="space-between" alignItems="center">
-                <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+              <Flex justifyContent="space-between" alignItems="center" flexWrap="wrap" gap="16px">
+                <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "10px", color: C.textMid, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Legend</span>
-                  {[{ color: C.teach, label: "Teaching Block" }, { color: C.appt, label: "Approved Appointment" }, { color: C.consult, label: "Consultation Hours" }].map(({ color, label }) => (
+                  {[{ color: C.teach, label: "Teaching Block" }, { color: C.appt, label: "Approved Appointment" }, { color: C.consult, label: "Consultation Hours" }, { color: C.note, label: "Personal Note" }].map(({ color, label }) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                       <div style={{ width: "10px", height: "10px", borderRadius: "3px", background: color }} />
                       <span style={{ fontSize: "11px", color: C.textMid }}>{label}</span>
@@ -622,7 +754,7 @@ const saveConsultationHours = async () => {
 
                 <Box bg={cardBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
                   <form onSubmit={handleFlagDate}>
-                    <HStack spacing={4} alignItems="flex-end">
+                    <HStack spacing={4} alignItems="flex-end" flexWrap="wrap">
                       <FormControl><FormLabel color={textColor} fontSize="sm">Emergency Absence</FormLabel><Input type="date" size="sm" value={flagDate} onChange={e => setFlagDate(e.target.value)} color={textColor} /></FormControl>
                       <ChakraButton type="submit" size="sm" colorScheme="red" px={6}>Mass Cancel Appts</ChakraButton>
                     </HStack>
@@ -631,6 +763,49 @@ const saveConsultationHours = async () => {
               </Flex>
 
             </div>
+          </Box>
+        )}
+
+        {noteModal && (
+          <Box
+            position="fixed" top="0" left="0" right="0" bottom="0" bg="rgba(0,0,0,0.45)"
+            display="flex" alignItems="center" justifyContent="center" zIndex={50}
+            onClick={() => setNoteModal(null)}
+          >
+            <Box
+              bg={cardBg} borderRadius="lg" shadow="xl" p={6} w="90%" maxW="380px"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
+              <Heading size="sm" color={textColor} mb={1}>{noteModal.editingId ? 'Edit Note' : 'Add a Note'}</Heading>
+              <Text fontSize="xs" color={mutedText} mb={4}>
+                {new Date(noteModal.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+              </Text>
+              <VStack spacing={3} align="stretch">
+                <HStack>
+                  <FormControl>
+                    <FormLabel fontSize="xs" color={textColor}>Start</FormLabel>
+                    <Input type="time" size="sm" value={noteModal.startTime} onChange={e => setNoteModal(m => m && ({ ...m, startTime: e.target.value }))} color={textColor} />
+                  </FormControl>
+                  <FormControl>
+                    <FormLabel fontSize="xs" color={textColor}>End</FormLabel>
+                    <Input type="time" size="sm" value={noteModal.endTime} onChange={e => setNoteModal(m => m && ({ ...m, endTime: e.target.value }))} color={textColor} />
+                  </FormControl>
+                </HStack>
+                <FormControl>
+                  <FormLabel fontSize="xs" color={textColor}>Note</FormLabel>
+                  <Textarea size="sm" placeholder="e.g. Prep for thesis panel, grading deadline..." value={noteModal.text} onChange={e => setNoteModal(m => m && ({ ...m, text: e.target.value }))} color={textColor} rows={3} />
+                </FormControl>
+                <HStack justify="space-between" pt={1}>
+                  {noteModal.editingId ? (
+                    <ChakraButton size="sm" variant="ghost" colorScheme="red" onClick={handleDeleteNote} isLoading={isSavingNote}>Delete</ChakraButton>
+                  ) : <Box />}
+                  <HStack>
+                    <ChakraButton size="sm" variant="ghost" onClick={() => setNoteModal(null)}>Cancel</ChakraButton>
+                    <ChakraButton size="sm" colorScheme="blue" onClick={handleSaveNote} isLoading={isSavingNote}>Save</ChakraButton>
+                  </HStack>
+                </HStack>
+              </VStack>
+            </Box>
           </Box>
         )}
 
@@ -676,45 +851,24 @@ const saveConsultationHours = async () => {
 
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1">
               <Heading size="md" color={textColor} mb={2}>Fixed Consultation Hours</Heading>
-              {hasConsultHours ? (
-                <>
-                  <Text fontSize="sm" color={mutedText} mb={4}>
-                    Your consultation hours are set and shown on your Master Schedule.
-                  </Text>
-                  <VStack spacing={2} align="stretch">
-                    {[...myConsultHours]
-                      .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
-                      .map((b) => (
-                        <HStack key={b._id} justify="space-between" px={3} py={2} borderWidth="1px" borderColor={borderColor} borderRadius="md" borderLeftWidth="4px" borderLeftColor="purple.400">
-                          <Text fontWeight="semibold" color={textColor}>{DAY_LABELS[b.dayOfWeek - 1]}</Text>
-                          <Text color={textColor}>{formatTime(b.startTime)} – {formatTime(b.endTime)}</Text>
-                        </HStack>
-                      ))}
-                    <Text fontSize="sm" fontWeight="bold" color="green.500">Total: {savedConsultHours} / 4.0 hours</Text>
-                  </VStack>
-                </>
-              ) : (
-                <>
-                  <Text fontSize="sm" color={mutedText} mb={4}>Must total exactly 4 hours per week, distributed however you like.</Text>
-                  <VStack spacing={3} align="stretch">
-                    {consultBlocks.map((block, i) => (
-                      <HStack key={i}>
-                        <Select size="sm" value={block.dayOfWeek} onChange={(e) => updateBlock(i, 'dayOfWeek', Number(e.target.value))}>
-                          {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
-                        </Select>
-                        <Input size="sm" type="time" value={block.startTime} onChange={(e) => updateBlock(i, 'startTime', e.target.value)} />
-                        <Input size="sm" type="time" value={block.endTime} onChange={(e) => updateBlock(i, 'endTime', e.target.value)} />
-                        <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
-                      </HStack>
-                    ))}
-                    <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
-                    <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
-                      Total: {totalHours} / 4.0 hours
-                    </Text>
-                    <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
-                  </VStack>
-                </>
-              )}
+              <Text fontSize="sm" color={mutedText} mb={4}>Must total exactly 4 hours per week, distributed however you like.</Text>
+              <VStack spacing={3} align="stretch">
+                {consultBlocks.map((block, i) => (
+                  <HStack key={i}>
+                    <Select size="sm" value={block.dayOfWeek} onChange={(e) => updateBlock(i, 'dayOfWeek', Number(e.target.value))}>
+                      {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
+                    </Select>
+                    <Input size="sm" type="time" value={block.startTime} onChange={(e) => updateBlock(i, 'startTime', e.target.value)} />
+                    <Input size="sm" type="time" value={block.endTime} onChange={(e) => updateBlock(i, 'endTime', e.target.value)} />
+                    <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
+                  </HStack>
+                ))}
+                <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
+                <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
+                  Total: {totalHours} / 4.0 hours
+                </Text>
+                <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
+              </VStack>
             </Box>
           </div>
         )}
