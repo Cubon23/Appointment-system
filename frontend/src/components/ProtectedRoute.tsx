@@ -10,6 +10,11 @@ function isTokenExpired(token: string): boolean {
   }
 }
 
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles: string[];
+}
+
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const userRole = localStorage.getItem('userRole');
   const token = localStorage.getItem('token');

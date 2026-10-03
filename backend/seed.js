@@ -196,7 +196,7 @@ const seedDatabase = async () => {
       ...silvaSchedule,
     ]);
 
-    // Silva's consultation hours: Tue & Thu 12:30-2:30 PM (4 hrs/week)
+    // Silva's consultation hours: Tue & Thu 12:00-2:30 PM
     // Percy's consultation hours: Tue & Thu 9:00-11:00 AM
     await ConsultationHours.insertMany([
       { facultyId: silvaId, dayOfWeek: 2, startTime: '12:30', endTime: '14:30' },

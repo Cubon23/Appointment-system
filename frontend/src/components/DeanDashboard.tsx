@@ -5,6 +5,8 @@ import {
   Badge, Text, Button as ChakraButton, Select, Input, HStack, useToast, FormControl, FormLabel, Flex, VStack, Textarea,
   useColorMode, useColorModeValue, SimpleGrid, CircularProgress, CircularProgressLabel
 } from '@chakra-ui/react';
+import { authFetch } from './authFetch';
+import NotificationBell from './NotificationBell';
 
 // === Helper function for time formatting ===
 export const formatTime = (timeStr: string) => {
@@ -45,7 +47,7 @@ export default function DeanDashboard() {
 
   const fetchData = () => {
     // Phase 1 Analytics: Pull live board data
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
       .then((res) => res.json())
       .then((data) => setFacultyRoster(data));
   };
@@ -76,7 +78,8 @@ export default function DeanDashboard() {
 
   const renderSidebar = () => (
     <Box w="196px" bg={C.sidebar} p={6} h="100vh" position="sticky" top="0" display="flex" flexDir="column">
-      <Heading size="sm" mb={10} color="#fff" letterSpacing="tight">Dean's Office</Heading>
+      <Heading size="sm" mb={6} color="#fff" letterSpacing="tight">Dean's Office</Heading>
+      <NotificationBell navText={C.navText} navBg={C.navBg} />
       <VStack align="stretch" spacing={1} flex="1">
         <button 
           onClick={() => setActivePage('analytics')}

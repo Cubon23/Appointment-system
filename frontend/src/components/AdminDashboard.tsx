@@ -6,6 +6,8 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure 
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
+import { authFetch } from './authFetch';
+import NotificationBell from './NotificationBell';
 // import { QRCodeSVG } from 'qrcode.react';
 
 export const formatTime = (timeStr: string) => {
@@ -73,9 +75,9 @@ export default function AdminDashboard() {
   const mutedText = useColorModeValue('#6b7fa0', '#7a93b0');
 
   const fetchAllData = () => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`).then(res => res.json()).then(data => setFacultyList(data));
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/all`).then(res => res.json()).then(data => setAppointments(data));
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/all`).then(res => res.json()).then(data => setAllUsers(data));
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`).then(res => res.json()).then(data => setFacultyList(data));
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/all`).then(res => res.json()).then(data => setAppointments(data));
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/all`).then(res => res.json()).then(data => setAllUsers(data));
   };
 
   useEffect(() => { fetchAllData(); }, []);
@@ -85,7 +87,7 @@ export default function AdminDashboard() {
     setLoading(true); 
     // setGeneratedQr('');
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/add`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/add`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, programPosition, room, role })
       });
@@ -109,7 +111,7 @@ export default function AdminDashboard() {
   const submitVerification = async () => {
     if (!verifyingUser) return;
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${verifyingUser.id}/verify`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${verifyingUser.id}/verify`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idValue: assignedIdValue })
@@ -128,7 +130,7 @@ export default function AdminDashboard() {
   const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/schedule/add`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/schedule/add`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ facultyId: selectedFacultyId, subject, room: schedRoom, dayOfWeek: Number(dayOfWeek), startTime, endTime })
       });
@@ -162,7 +164,7 @@ export default function AdminDashboard() {
       }
     }
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
@@ -182,6 +184,8 @@ export default function AdminDashboard() {
           <span style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#fff", textTransform: "uppercase" }}>Admin Console</span>
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
+
+        <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[

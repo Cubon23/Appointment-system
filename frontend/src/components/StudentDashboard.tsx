@@ -5,6 +5,8 @@ import {
   Badge, Select, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
   useColorMode, useColorModeValue
 } from '@chakra-ui/react';
+import { authFetch } from './authFetch';
+import NotificationBell from './NotificationBell';
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -59,11 +61,11 @@ export default function StudentDashboard() {
   const facultyRowHoverBg = useColorModeValue('gray.50', 'whiteAlpha.100');
 
   const fetchData = () => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
       .then(res => res.json())
       .then(data => setFaculty(data));
     if (userName) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/student/${userName}`)
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/student/${userName}`)
         .then(res => res.json())
         .then(data => setMyRequests(data));
     }
@@ -100,8 +102,8 @@ export default function StudentDashboard() {
     }
     setScheduleLoading(true);
     Promise.all([
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${selectedFaculty}`).then(res => res.json()),
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${selectedFaculty}`).then(res => res.json())
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${selectedFaculty}`).then(res => res.json()),
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${selectedFaculty}`).then(res => res.json())
     ])
       .then(([schedule, consultHours]) => {
         setFacultySchedule(Array.isArray(schedule) ? schedule : []);
@@ -147,7 +149,7 @@ export default function StudentDashboard() {
     setIsSubmitting(true);
     
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
       });
@@ -192,7 +194,7 @@ export default function StudentDashboard() {
 
   const handleCancelAppointment = async (id: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${id}`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'CANCELLED BY STUDENT' })
       });
@@ -212,6 +214,8 @@ export default function StudentDashboard() {
           <span style={{ fontSize: "11px", fontWeight: 800, letterSpacing: "0.14em", color: "#fff", textTransform: "uppercase" }}>Student Portal</span>
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
+
+        <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[

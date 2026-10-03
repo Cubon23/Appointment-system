@@ -6,12 +6,24 @@ const User = require('../models/User');
 const Schedule = require('../models/Schedule');
 const Appointment = require('../models/Appointment');
 const Announcement = require('../models/Announcement');
-const PersonalEvent = require('../models/PersonalEvent');
+const CalendarNote = require('../models/CalendarNote');
+const Notification = require('../models/Notification');
+const { notify, notifyRole, resolveStudentId, fmtDate, fmtTime } = require('../utils/notify');
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
+
+// ---- Access control helpers ------------------------------------------------
+const ALL_ROLES = ['STUDENT', 'FACULTY', 'DEAN', 'ADMIN'];
+const STAFF = ['ADMIN', 'DEAN'];
+const isStaff = (req) => STAFF.includes(req.user.role);
+// The logged-in user must BE the faculty/user named by the URL param (staff bypass optional)
+const ownerOnly = (getId) => (req, res, next) =>
+  String(getId(req)) === String(req.user.userId) ? next() : res.status(403).json({ error: 'Forbidden' });
+const ownerOrStaff = (getId) => (req, res, next) =>
+  isStaff(req) || String(getId(req)) === String(req.user.userId) ? next() : res.status(403).json({ error: 'Forbidden' });
 const timeToMinutes = (time) => {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
@@ -65,6 +77,14 @@ router.post('/register', async (req, res) => {
       accountStatus,
       currentStatus: 'OUT_OF_OFFICE'
     });
+
+    if (accountStatus === 'PENDING_APPROVAL') {
+      await notifyRole('ADMIN', {
+        type: 'REGISTRATION',
+        title: 'New registration awaiting verification',
+        message: `${name} (${role}) registered and needs an ID assigned in the Verification Queue.`,
+      });
+    }
 
     res.json({ 
       message: role === 'STUDENT' ? 'Registration successful!' : 'Registration submitted. Awaiting Admin approval.',
@@ -129,10 +149,10 @@ router.post('/login', async (req, res) => {
 });
 
 // 1. GET ROUTE: Fetch all faculty members for the dashboard
-router.get('/status', async (req, res) => {
+router.get('/status', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const facultyList = await User.find({ role: 'FACULTY' })
-      .select('name programPosition currentStatus currentLocation room statusUpdatedAt statusNote qrHash')
+      .select('name programPosition currentStatus currentLocation room statusUpdatedAt statusNote')
       .sort({ name: 1 });
 
     const today = new Date();
@@ -156,7 +176,7 @@ router.get('/status', async (req, res) => {
 });
 
 // PUT ROUTE: Approve or Reject an Appointment
-router.put('/appointment/:id', async (req, res) => {
+router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const { status } = req.body;
     
@@ -165,6 +185,17 @@ router.put('/appointment/:id', async (req, res) => {
 
     if (!targetApt) {
       return res.status(404).json({ error: 'Appointment not found.' });
+    }
+
+    // Who may change this appointment, and to what
+    if (req.user.role === 'FACULTY' && String(targetApt.facultyId) !== String(req.user.userId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (req.user.role === 'STUDENT') {
+      const me = await User.findById(req.user.userId).select('name');
+      if (!me || me.name !== targetApt.studentName || status !== 'CANCELLED BY STUDENT') {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
 
     // THE INTERCEPTOR: Only run overlap logic if they are trying to APPROVE
@@ -206,8 +237,28 @@ router.put('/appointment/:id', async (req, res) => {
     }
 
     // If math clears (or if they are just rejecting/canceling), execute the database write
+    const previousStatus = targetApt.status;
     targetApt.status = status;
     await targetApt.save();
+
+    if (status !== previousStatus) {
+      const when = `${fmtDate(targetApt.date)} at ${fmtTime(targetApt.time)}`;
+      if (req.user.role === 'STUDENT') {
+        await notify(targetApt.facultyId, {
+          type: 'APPOINTMENT_UPDATE',
+          title: 'Consultation cancelled by student',
+          message: `${targetApt.studentName} cancelled the consultation on ${when}.`,
+        });
+      } else {
+        const faculty = await User.findById(targetApt.facultyId).select('name');
+        const verb = status === 'APPROVED' ? 'approved' : status === 'REJECTED' ? 'declined' : `updated to ${status}`;
+        await notify(await resolveStudentId(targetApt), {
+          type: 'APPOINTMENT_UPDATE',
+          title: `Consultation ${verb}`,
+          message: `Your request with ${faculty ? faculty.name : 'your instructor'} on ${when} was ${verb}.`,
+        });
+      }
+    }
 
     res.json(targetApt);
 
@@ -218,7 +269,7 @@ router.put('/appointment/:id', async (req, res) => {
 });
 
 // 3. GET ROUTE: Fetch schedule for a specific faculty member
-router.get('/my-schedule/:facultyId', async (req, res) => {
+router.get('/my-schedule/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const schedules = await Schedule.find({ facultyId: req.params.facultyId })
       .sort({ dayOfWeek: 1, startTime: 1 });
@@ -229,10 +280,15 @@ router.get('/my-schedule/:facultyId', async (req, res) => {
 });
 
 // 4. POST ROUTE: Admin assigns a schedule to a faculty member
-router.post('/schedule/add', async (req, res) => {
+router.post('/schedule/add', requireAuth(STAFF), async (req, res) => {
   const { facultyId, subject, room, dayOfWeek, startTime, endTime } = req.body;
   try {
     await Schedule.create({ facultyId, subject, room, dayOfWeek, startTime, endTime });
+    await notify(facultyId, {
+      type: 'SCHEDULE_ASSIGNED',
+      title: 'New class added to your schedule',
+      message: `${subject} in ${room}, ${fmtTime(startTime)} - ${fmtTime(endTime)}.`,
+    });
     res.json({ message: 'Schedule assigned successfully!' });
   } catch (error) {
     res.status(500).json({ error: 'Server error assigning schedule.' });
@@ -240,7 +296,7 @@ router.post('/schedule/add', async (req, res) => {
 });
 
 // 5. POST ROUTE: Admin adds a new faculty member (QR Generation)
-router.post('/add', async (req, res) => {
+router.post('/add', requireAuth(STAFF), async (req, res) => {
   const { name, email, programPosition, room, role, schoolId, facultyId } = req.body;
   try {
     const existingUser = await User.findOne({ email });
@@ -248,44 +304,26 @@ router.post('/add', async (req, res) => {
       return res.status(400).json({ error: 'Email already exists' });
     }
 
-    const qrHash = email.split('@')[0] + '_qr_' + new Date().getFullYear();
-
     const newUser = new User({
       name,
       email,
       programPosition,
       room,
       role: role || 'FACULTY',
-      qrHash,
       schoolId,
       facultyId,
       currentStatus: 'OUT_OF_OFFICE',
     });
 
     await newUser.save();
-    res.json({ message: 'Account provisioned successfully', qrHash, facultyName: name });
+    res.json({ message: 'Account provisioned successfully', facultyName: name });
   } catch (error) {
     res.status(500).json({ error: 'Error provisioning account' });
   }
 });
 
-// 6. GET ROUTE: Seed Database with Real BS INFO 3D Schedule
-router.get('/seed', async (req, res) => {
-  try {
-    await User.deleteMany({ role: { $in: ['FACULTY', 'ADMIN', 'DEAN', 'STUDENT'] } });
-    await Schedule.deleteMany({});
-    await Appointment.deleteMany({});
-    await Announcement.deleteMany({});
-
-
-    res.json({ message: "Successfully seeded Local Database for presentation!" });
-  } catch (error) {
-    res.status(500).json({ error: 'Error seeding data', details: error.message });
-  }
-});
-
 // 7. GET ROUTE: Fetch announcements by section
-router.get('/announcements/:section', async (req, res) => {
+router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const announcements = await Announcement.find({
       $or: [{ section: req.params.section }, { section: 'ALL' }]
@@ -297,11 +335,11 @@ router.get('/announcements/:section', async (req, res) => {
 });
 
 // 8. POST ROUTE: Student requests an appointment
-router.post('/appointment', async (req, res) => {
+router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
     const { facultyId, date, time, studentName, studentSection, reason } = req.body;
     
-    const studentId = req.body.studentId || null; 
+    const studentId = req.user.userId; // from the verified login token, not the request body
 
     const aptDate = new Date(date);
     const dayOfWeek = aptDate.getDay(); 
@@ -378,6 +416,12 @@ router.post('/appointment', async (req, res) => {
       status: 'PENDING'
     });
 
+    await notify(facultyId, {
+      type: 'APPOINTMENT_REQUEST',
+      title: 'New consultation request',
+      message: `${studentName} (${studentSection}) requested ${fmtDate(date)} at ${fmtTime(time)}. Reason: ${String(reason).slice(0, 100)}`,
+    });
+
     res.json({ message: 'Appointment requested successfully!', appointment: newAppointment });
 
   } catch (error) {
@@ -387,7 +431,7 @@ router.post('/appointment', async (req, res) => {
 });
 
 // 9. GET ROUTE: Admin fetches ALL appointments
-router.get('/appointments/all', async (req, res) => {
+router.get('/appointments/all', requireAuth(STAFF), async (req, res) => {
   try {
     const appointments = await Appointment.find().populate('facultyId', 'name').sort({ createdAt: -1 });
     res.json(appointments);
@@ -397,7 +441,7 @@ router.get('/appointments/all', async (req, res) => {
 });
 
 // 10. GET ROUTE: Fetch all unverified users
-router.get('/users/all', async (req, res) => {
+router.get('/users/all', requireAuth(STAFF), async (req, res) => {
   try {
     const users = await User.find({ role: { $ne: 'ADMIN' } })
   .select('-password')
@@ -409,7 +453,7 @@ router.get('/users/all', async (req, res) => {
 });
 
 // Verify a pending user by assigning their official ID
-router.patch('/users/:id/verify', async (req, res) => {
+router.patch('/users/:id/verify', requireAuth(STAFF), async (req, res) => {
   try {
     const { idValue } = req.body; // the School ID or Faculty ID being assigned
     const user = await User.findById(req.params.id);
@@ -433,7 +477,7 @@ router.patch('/users/:id/verify', async (req, res) => {
 });
 
 // 12. GET ROUTE: Fetch appointments for one specific faculty member
-router.get('/appointments/me/:facultyId', async (req, res) => {
+router.get('/appointments/me/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']), ownerOrStaff(r => r.params.facultyId), async (req, res) => {
   try {
     const appointments = await Appointment.find({ facultyId: req.params.facultyId }).sort({ createdAt: -1 });
     res.json(appointments);
@@ -443,7 +487,7 @@ router.get('/appointments/me/:facultyId', async (req, res) => {
 });
 
 // 13. PUT ROUTE: Save a Notice
-router.put('/notice/:id', async (req, res) => {
+router.put('/notice/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
   try {
     const updated = await User.findByIdAndUpdate(req.params.id, { noticeMessage: req.body.notice }, { new: true });
     res.json(updated);
@@ -451,7 +495,7 @@ router.put('/notice/:id', async (req, res) => {
 });
 
 // 14. PUT ROUTE: Save a Future Flag Date & AUTO-CANCEL Appointments on that date
-router.put('/flag-date/:id', async (req, res) => {
+router.put('/flag-date/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
   try {
     const { flagDate, reason } = req.body;
     
@@ -460,6 +504,12 @@ router.put('/flag-date/:id', async (req, res) => {
       { flaggedDate: flagDate, flaggedReason: reason }, 
       { new: true }
     );
+
+    const affected = await Appointment.find({
+      facultyId: req.params.id,
+      date: flagDate,
+      status: { $in: ['PENDING', 'APPROVED'] }
+    });
 
     await Appointment.updateMany(
       { 
@@ -475,12 +525,25 @@ router.put('/flag-date/:id', async (req, res) => {
       }
     );
 
+    for (const apt of affected) {
+      await notify(await resolveStudentId(apt), {
+        type: 'LEAVE_CANCELLATION',
+        title: 'Consultation cancelled (faculty on leave)',
+        message: `Your consultation on ${fmtDate(apt.date)} at ${fmtTime(apt.time)} was cancelled because ${updated ? updated.name : 'the instructor'} declared leave.`,
+      });
+    }
+    await notifyRole('DEAN', {
+      type: 'FACULTY_LEAVE',
+      title: 'Faculty leave declared',
+      message: `${updated ? updated.name : 'A faculty member'} declared leave on ${fmtDate(flagDate)}. ${affected.length} appointment(s) were auto-cancelled.`,
+    });
+
     res.json(updated);
   } catch (err) { res.status(500).json({ error: 'Error saving flag date' }); }
 });
 
 // 15. GET ROUTE: Fetch appointments for one specific student
-router.get('/appointments/student/:studentName', async (req, res) => {
+router.get('/appointments/student/:studentName', requireAuth(['STUDENT','ADMIN','DEAN']), async (req, res) => {
   try {
     const appointments = await Appointment.find({ studentName: req.params.studentName })
       .populate('facultyId', 'name')
@@ -494,9 +557,10 @@ router.get('/appointments/student/:studentName', async (req, res) => {
 // Faculty sets/updates their consultation hours
 // const timeToMinutes = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 
-router.post('/consultation-hours', async (req, res) => {
+router.post('/consultation-hours', requireAuth(['FACULTY']), async (req, res) => {
   try {
-    const { facultyId, hours } = req.body; // [{ dayOfWeek, startTime, endTime }, ...]
+    const { hours } = req.body; // [{ dayOfWeek, startTime, endTime }, ...]
+    const facultyId = req.user.userId; // always the logged-in faculty, never trust the body
 
     // 1. Total must be exactly 4 hours (240 minutes)
     const totalMinutes = hours.reduce((sum, h) => sum + (timeToMinutes(h.endTime) - timeToMinutes(h.startTime)), 0);
@@ -525,38 +589,85 @@ router.post('/consultation-hours', async (req, res) => {
   }
 });
 
-router.post('/personal-event', async (req, res) => {
+// =========================================================================
+// === CALENDAR NOTES (private, one-off, date-specific) ====================
+// =========================================================================
+// Body: { date: 'YYYY-MM-DD', startTime: 'HH:MM', endTime: 'HH:MM', text }
+// Notes may not overlap that weekday's fixed teaching blocks or consultation hours.
+const validateNote = async (facultyId, { date, startTime, endTime, text }) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || isNaN(new Date(date + 'T00:00:00Z')))
+    return 'A valid date (YYYY-MM-DD) is required.';
+  if (!/^\d{2}:\d{2}$/.test(startTime || '') || !/^\d{2}:\d{2}$/.test(endTime || ''))
+    return 'Start and end time (HH:MM) are required.';
+  if (timeToMinutes(endTime) <= timeToMinutes(startTime))
+    return 'End time must be after start time.';
+  if (!text || !String(text).trim()) return 'Note text is required.';
+  if (String(text).length > 500) return 'Note must be 500 characters or fewer.';
+
+  // Weekday of the specific date, timezone-safe. 1=Mon ... 6=Sat (matches Schedule/ConsultationHours); Sunday=0 matches nothing.
+  const dayOfWeek = new Date(date + 'T00:00:00Z').getUTCDay();
+  const fixed = [
+    ...(await Schedule.find({ facultyId, dayOfWeek })),
+    ...(await ConsultationHours.find({ facultyId, dayOfWeek })),
+  ];
+  const conflict = fixed.some(b =>
+    timeToMinutes(startTime) < timeToMinutes(b.endTime) &&
+    timeToMinutes(b.startTime) < timeToMinutes(endTime)
+  );
+  return conflict ? 'This time overlaps a class or consultation hours block.' : null;
+};
+
+// List all notes for a faculty member
+router.get('/notes/:facultyId', requireAuth(['FACULTY']), ownerOnly(r => r.params.facultyId), async (req, res) => {
   try {
-    const { facultyId, title, dayOfWeek, startTime, endTime, note } = req.body;
+    const notes = await CalendarNote.find({ facultyId: req.params.facultyId }).sort({ date: 1, startTime: 1 });
+    res.json(notes);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching notes.' });
+  }
+});
 
-    // Must not collide with fixed Class or Consultation Hours blocks
-    const classes = await Schedule.find({ facultyId, dayOfWeek });
-    const consultBlocks = await ConsultationHours.find({ facultyId, dayOfWeek });
-    const locked = [...classes, ...consultBlocks];
+// Create a note
+router.post('/notes/:facultyId', requireAuth(['FACULTY']), ownerOnly(r => r.params.facultyId), async (req, res) => {
+  try {
+    const { facultyId } = req.params;
+    const { date, startTime, endTime, text } = req.body;
+    const problem = await validateNote(facultyId, { date, startTime, endTime, text });
+    if (problem) return res.status(400).json({ error: problem });
 
-    const conflict = locked.some(b =>
-      timeToMinutes(startTime) < timeToMinutes(b.endTime) &&
-      timeToMinutes(b.startTime) < timeToMinutes(endTime)
-    );
-    if (conflict) {
-      return res.status(400).json({ error: 'This time overlaps a fixed Class or Consultation Hours block and cannot be edited.' });
-    }
-
-    const event = await PersonalEvent.create({ facultyId, title, dayOfWeek, startTime, endTime, note });
-    res.json({ message: 'Note added.', event });
+    const note = await CalendarNote.create({ facultyId, date, startTime, endTime, text: String(text).trim() });
+    res.json({ message: 'Note added.', note });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 });
 
-router.get('/personal-events/:facultyId', async (req, res) => {
-  const events = await PersonalEvent.find({ facultyId: req.params.facultyId });
-  res.json(events);
+// Edit a note (:id is the NOTE id here)
+router.put('/notes/:id', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const note = await CalendarNote.findOne({ _id: req.params.id, facultyId: req.user.userId });
+    if (!note) return res.status(404).json({ error: 'Note not found.' });
+
+    const { date, startTime, endTime, text } = req.body;
+    const problem = await validateNote(note.facultyId, { date, startTime, endTime, text });
+    if (problem) return res.status(400).json({ error: problem });
+
+    Object.assign(note, { date, startTime, endTime, text: String(text).trim() });
+    await note.save();
+    res.json({ message: 'Note updated.', note });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-router.delete('/personal-event/:id', async (req, res) => {
-  await PersonalEvent.findByIdAndDelete(req.params.id);
-  res.json({ message: 'Note removed.' });
+// Delete a note (:id is the NOTE id)
+router.delete('/notes/:id', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    await CalendarNote.findOneAndDelete({ _id: req.params.id, facultyId: req.user.userId });
+    res.json({ message: 'Note removed.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error deleting note.' });
+  }
 });
 
 router.get('/faculty/:id/public-schedule', async (req, res) => {
@@ -587,10 +698,10 @@ router.get('/faculty/:id/public-schedule', async (req, res) => {
 });
 
 // Complete a consultation and record the log entry (digital sign-off)
-router.patch('/appointment/:id/complete', async (req, res) => {
+router.patch('/appointment/:id/complete', requireAuth(['FACULTY']), async (req, res) => {
   try {
     const { casePresented, interventionTaken, remarks } = req.body;
-    const apt = await Appointment.findById(req.params.id);
+    const apt = await Appointment.findOne({ _id: req.params.id, facultyId: req.user.userId });
     if (!apt) return res.status(404).json({ error: 'Appointment not found.' });
     if (apt.status !== 'APPROVED') {
       return res.status(400).json({ error: 'Only approved consultations can be completed.' });
@@ -606,6 +717,12 @@ router.patch('/appointment/:id/complete', async (req, res) => {
     apt.completedAt       = new Date();
     await apt.save();
 
+    await notify(await resolveStudentId(apt), {
+      type: 'CONSULTATION_LOGGED',
+      title: 'Consultation completed',
+      message: `Your consultation on ${fmtDate(apt.date)} was logged and signed off by your instructor.`,
+    });
+
     res.json({ message: 'Consultation logged and signed off.', appointment: apt });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -613,7 +730,7 @@ router.patch('/appointment/:id/complete', async (req, res) => {
 });
 
 // Fetch a faculty member's consultation log (completed entries, oldest first like the paper form)
-router.get('/consultation-log/:facultyId', async (req, res) => {
+router.get('/consultation-log/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']), ownerOrStaff(r => r.params.facultyId), async (req, res) => {
   try {
     const log = await Appointment.find({ 
       facultyId: req.params.facultyId, 
@@ -626,9 +743,43 @@ router.get('/consultation-log/:facultyId', async (req, res) => {
 });
 
 // Anyone can check a faculty member's declared hours (students need this to book)
-router.get('/consultation-hours/:facultyId', async (req, res) => {
+router.get('/consultation-hours/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   const hours = await ConsultationHours.find({ facultyId: req.params.facultyId });
   res.json(hours);
+});
+
+// =========================================================================
+// === NOTIFICATIONS (each user only ever sees their own) ==================
+// =========================================================================
+router.get('/notifications', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const [items, unreadCount] = await Promise.all([
+      Notification.find({ userId }).sort({ createdAt: -1 }).limit(30),
+      Notification.countDocuments({ userId, read: false }),
+    ]);
+    res.json({ unreadCount, items });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching notifications.' });
+  }
+});
+
+router.patch('/notifications/read-all', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    await Notification.updateMany({ userId: req.user.userId, read: false }, { $set: { read: true } });
+    res.json({ message: 'All notifications marked as read.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error updating notifications.' });
+  }
+});
+
+router.patch('/notifications/:id/read', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    await Notification.updateOne({ _id: req.params.id, userId: req.user.userId }, { $set: { read: true } });
+    res.json({ message: 'Marked as read.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error updating notification.' });
+  }
 });
 
 module.exports = router;

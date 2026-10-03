@@ -7,6 +7,8 @@ import {
   Button as ChakraButton, Select, Input, HStack, useToast, FormControl, 
   FormLabel, Flex, VStack, Textarea, useColorMode, useColorModeValue
 } from '@chakra-ui/react';
+import { authFetch } from './authFetch';
+import NotificationBell from './NotificationBell';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -173,7 +175,7 @@ export default function FacultyDashboard() {
   const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
 
 const fetchLog = () => {
-  fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-log/${userId}`)
+  authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-log/${userId}`)
     .then(r => r.json())
     .then(setConsultLog)
     .catch(() => {});
@@ -183,7 +185,7 @@ useEffect(() => { fetchLog(); }, []);
 const submitLogEntry = async (aptId: string) => {
   const entry = logForm[aptId] || { casePresented: '', interventionTaken: '', remarks: '' };
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${aptId}/complete`, {
+    const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${aptId}/complete`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry)
@@ -203,7 +205,7 @@ const saveConsultationHours = async () => {
     return toast({ title: 'Invalid Total', description: `Must total exactly 4 hours. Currently ${totalHours} hours.`, status: 'warning' });
   }
   try {
-    const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours`, {
+    const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ facultyId: userId, hours: consultBlocks })
@@ -263,7 +265,7 @@ const saveConsultationHours = async () => {
 
   // ── API Functions ────────────────────────────────────────────────────────
   const fetchData = () => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
       .then((res) => res.json())
       .then((data) => {
         if (userId && data.length > 0 && !hasSyncedRef.current) {
@@ -278,19 +280,19 @@ const saveConsultationHours = async () => {
       });
       
     if (userId) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/me/${userId}`)
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/me/${userId}`)
         .then(res => res.json())
         .then(data => setMyAppointments(data));
         
-            fetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${userId}`)
+            authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${userId}`)
         .then(res => res.json())
         .then(data => setMySchedule(data));
 
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${userId}`)
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${userId}`)
         .then(res => res.json())
         .then(data => setMyConsultHours(data));
 
-      fetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${userId}`)
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${userId}`)
         .then(res => res.json())
         .then(data => setPersonalEvents(Array.isArray(data) ? data : []))
         .catch(() => setPersonalEvents([]));
@@ -307,7 +309,7 @@ const saveConsultationHours = async () => {
   const handleUpdateMyStatus = async () => {
     setIsUpdating(true);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/update-status/${userId}`, {
+      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/update-status/${userId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentStatus: myStatus, currentLocation: myLocation })
       });
@@ -319,7 +321,7 @@ const saveConsultationHours = async () => {
   const handlePostNotice = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/notice/${userId}`, {
+      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/notice/${userId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notice })
       });
@@ -330,7 +332,7 @@ const saveConsultationHours = async () => {
   const handleFlagDate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/flag-date/${userId}`, {
+      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/flag-date/${userId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ flagDate, reason: flagReason })
       });
@@ -358,7 +360,7 @@ const saveConsultationHours = async () => {
     if (timeToMinutes(endTime) <= timeToMinutes(startTime)) {
       toast({ title: 'End time must be after start time', status: 'warning' }); return;
     }
-    const dow = (new Date(date).getDay() + 6) % 7; // 0=Mon ... matches DAY_LABELS indexing
+    const dow = (new Date(date + 'T00:00:00').getDay() + 6) % 7; // 0=Mon ... matches DAY_LABELS indexing
     if (isSlotBlocked(dow, new Date(date), startTime, endTime, editingId)) {
       toast({ title: 'That time overlaps class or consultation hours', description: 'Notes can only be added to open time slots.', status: 'error', duration: 6000 });
       return;
@@ -369,12 +371,15 @@ const saveConsultationHours = async () => {
       const url = editingId
         ? `${import.meta.env.VITE_API_URL}/api/faculty/notes/${editingId}`
         : `${import.meta.env.VITE_API_URL}/api/faculty/notes/${userId}`;
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ date, startTime, endTime, text: text.trim() })
       });
-      if (!response.ok) throw new Error('Failed to save note');
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to save note');
+      }
       toast({ title: editingId ? 'Note updated' : 'Note added', status: 'success' });
       setNoteModal(null);
       fetchData();
@@ -389,7 +394,7 @@ const saveConsultationHours = async () => {
     if (!noteModal?.editingId) return;
     setIsSavingNote(true);
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${noteModal.editingId}`, { method: 'DELETE' });
+      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/notes/${noteModal.editingId}`, { method: 'DELETE' });
       toast({ title: 'Note deleted', status: 'success' });
       setNoteModal(null);
       fetchData();
@@ -402,7 +407,7 @@ const saveConsultationHours = async () => {
 
   const updateAppointmentStatus = async (targetApt: any, newStatus: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
@@ -525,6 +530,8 @@ const saveConsultationHours = async () => {
           </span>
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
+
+        <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {(
