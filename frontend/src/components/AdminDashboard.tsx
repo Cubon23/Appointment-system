@@ -121,7 +121,7 @@ export default function AdminDashboard() {
       toast({ title: 'Verified', description: data.message, status: 'success' });
       onClose();
       // refresh the list so the verified user disappears from the pending queue
-      fetchAllUsers(); // reuse whatever function currently populates allUsers
+      fetchAllData();
     } catch (error: any) {
       toast({ title: 'Verification Failed', description: error.message, status: 'error' });
     }

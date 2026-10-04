@@ -309,12 +309,19 @@ const saveConsultationHours = async () => {
   const handleUpdateMyStatus = async () => {
     setIsUpdating(true);
     try {
-      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/update-status/${userId}`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/update-status/${userId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentStatus: myStatus, currentLocation: myLocation })
       });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to update status (${response.status})`);
+      }
       toast({ title: 'Status updated!', status: 'success', duration: 2000 });
-    } catch (error) {}
+      fetchData();
+    } catch (error: any) {
+      toast({ title: 'Could not update status', description: error.message, status: 'error' });
+    }
     setIsUpdating(false);
   };
 

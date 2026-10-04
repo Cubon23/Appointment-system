@@ -61,10 +61,10 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const accountStatus = 
-      (role === 'STUDENT' && !schoolId) ? 'PENDING_APPROVAL' :
-      (role === 'FACULTY' && !facultyId) ? 'PENDING_APPROVAL' :
-      'ACTIVE';
+    // A user-typed schoolId/facultyId at registration is just a claim, not proof — it must
+    // still be checked and assigned by Admin via the Verification Queue (PATCH /users/:id/verify).
+    // Only accounts that need no ID (e.g. none required for this role) skip straight to ACTIVE.
+    const accountStatus = (role === 'STUDENT' || role === 'FACULTY') ? 'PENDING_APPROVAL' : 'ACTIVE';
 
     const newUser = await User.create({
       name,
@@ -487,6 +487,37 @@ router.get('/appointments/me/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']
 });
 
 // 13. PUT ROUTE: Save a Notice
+// 13b. PUT ROUTE: Faculty updates their own live status/location (used by FacultyDashboard's status page)
+const VALID_STATUSES = ['AVAILABLE', 'IN_CLASS', 'IN_MEETING', 'ON_BREAK', 'OUT_OF_OFFICE', 'ON_LEAVE', 'ABSENT', 'NOT_UPDATED'];
+router.put('/update-status/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
+  try {
+    const { currentStatus, currentLocation } = req.body;
+    if (!VALID_STATUSES.includes(currentStatus)) {
+      return res.status(400).json({ error: 'Invalid status value' });
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      req.params.id,
+      { currentStatus, currentLocation, statusUpdatedAt: new Date() },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Faculty not found' });
+    }
+
+    await StatusHistory.create({
+      facultyId: req.params.id,
+      status: currentStatus,
+      note: currentLocation || '',
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: 'Error updating status' });
+  }
+});
+
 router.put('/notice/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
   try {
     const updated = await User.findByIdAndUpdate(req.params.id, { noticeMessage: req.body.notice }, { new: true });
@@ -543,9 +574,11 @@ router.put('/flag-date/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.i
 });
 
 // 15. GET ROUTE: Fetch appointments for one specific student
-router.get('/appointments/student/:studentName', requireAuth(['STUDENT','ADMIN','DEAN']), async (req, res) => {
+// NOTE: previously matched by studentName (string), which meant two students sharing the
+// same name could see each other's appointments. Now scoped to the actual account's ID.
+router.get('/appointments/student/:studentId', requireAuth(['STUDENT','ADMIN','DEAN']), ownerOrStaff(r => r.params.studentId), async (req, res) => {
   try {
-    const appointments = await Appointment.find({ studentName: req.params.studentName })
+    const appointments = await Appointment.find({ studentId: req.params.studentId })
       .populate('facultyId', 'name')
       .sort({ createdAt: -1 });
     res.json(appointments);

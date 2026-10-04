@@ -24,6 +24,7 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
   const userName = localStorage.getItem('userName') || 'Student';
+  const userId = localStorage.getItem('userId') || '';
   const { colorMode, toggleColorMode } = useColorMode();
 
   const [activePage, setActivePage] = useState('home');
@@ -64,8 +65,8 @@ export default function StudentDashboard() {
     authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`)
       .then(res => res.json())
       .then(data => setFaculty(data));
-    if (userName) {
-      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/student/${userName}`)
+    if (userId) {
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointments/student/${userId}`)
         .then(res => res.json())
         .then(data => setMyRequests(data));
     }
@@ -88,7 +89,7 @@ export default function StudentDashboard() {
     fetchData();
     const intervalId = setInterval(fetchData, 5000);
     return () => clearInterval(intervalId);
-  }, [userName]);
+  }, [userId]);
 
   // When a professor is chosen, pull their weekly hours so the student can pick
   // a real open slot. We only ever read startTime/endTime/dayOfWeek from these
