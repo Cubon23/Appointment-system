@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Heading, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
-  Badge, Text, Button as ChakraButton, Select, Input, HStack, useToast, FormControl, FormLabel, Flex, VStack, Textarea,
-  useColorMode, useColorModeValue, SimpleGrid, CircularProgress, CircularProgressLabel
+  Badge, Text, Button as ChakraButton, HStack, Flex, VStack,
+  useColorMode, SimpleGrid, CircularProgress, CircularProgressLabel
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import NotificationBell from './NotificationBell';
@@ -20,10 +20,8 @@ export const formatTime = (timeStr: string) => {
 
 export default function DeanDashboard() {
   const navigate = useNavigate();
-  const toast = useToast();
   const { colorMode, toggleColorMode } = useColorMode();
-  
-  const userId = localStorage.getItem('userId');
+
   const userName = localStorage.getItem('userName');
 
   // Unified Page State

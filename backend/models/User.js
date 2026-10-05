@@ -10,12 +10,21 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   
   // === NEW: Authentication & Security Fields ===
-  password: { type: String }, 
-  accountStatus: { 
-    type: String, 
+  password: { type: String },
+  accountStatus: {
+    type: String,
     enum: ['ACTIVE', 'PENDING_APPROVAL', 'ARCHIVED', 'RESTRICTED'],
-    default: 'ACTIVE' 
+    default: 'ACTIVE'
   },
+
+  // Email verification
+  isVerified: { type: Boolean, default: false },
+  verificationToken: { type: String, select: false },
+  verificationTokenExpires: { type: Date, select: false },
+
+  // Forgot-password flow
+  resetPasswordToken: { type: String, select: false },
+  resetPasswordExpires: { type: Date, select: false },
 
   schoolId: {
   type: String,

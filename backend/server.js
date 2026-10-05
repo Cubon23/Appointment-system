@@ -8,7 +8,25 @@ require('dotenv').config(); // This loads variables from the .env file
 const app = express();
 
 // Middleware
-app.use(cors()); // Allows your React frontend to communicate with this backend
+// Only the frontend URL(s) listed in .env may call this API from a browser.
+// FRONTEND_URL can be a single URL ("http://localhost:5173") or a comma-separated
+// list ("http://localhost:5173,https://your-deployed-site.vercel.app").
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim());
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. curl, Postman, server-to-server) and
+    // any origin explicitly listed in FRONTEND_URL.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json()); // Allows the server to accept JSON data in requests
 
 // ROUTES

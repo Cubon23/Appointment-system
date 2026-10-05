@@ -349,7 +349,7 @@ const saveConsultationHours = async () => {
 
   // A note can't be placed on top of a teaching block or consultation hours for that day/date.
   // (Overlapping an already-approved appointment is still blocked too, to keep the slot unambiguous.)
-  const isSlotBlocked = (dayIndex: number, date: Date, startTime: string, endTime: string, ignoreNoteId?: string | null): boolean => {
+  const isSlotBlocked = (dayIndex: number, startTime: string, endTime: string): boolean => {
     const dayEvts = dynamicEvents.filter(e => e.dayOfWeek === dayIndex && e.type !== "note");
     return dayEvts.some(e => {
       const evStart = `${String(e.startHour).padStart(2, '0')}:${String(e.startMinute).padStart(2, '0')}`;
@@ -368,7 +368,7 @@ const saveConsultationHours = async () => {
       toast({ title: 'End time must be after start time', status: 'warning' }); return;
     }
     const dow = (new Date(date + 'T00:00:00').getDay() + 6) % 7; // 0=Mon ... matches DAY_LABELS indexing
-    if (isSlotBlocked(dow, new Date(date), startTime, endTime, editingId)) {
+    if (isSlotBlocked(dow, startTime, endTime)) {
       toast({ title: 'That time overlaps class or consultation hours', description: 'Notes can only be added to open time slots.', status: 'error', duration: 6000 });
       return;
     }
@@ -694,7 +694,7 @@ const saveConsultationHours = async () => {
                           const startMin = START_HOUR * 60 + slotIndex * 30;
                           const startTime = minutesToTime(startMin);
                           const endTime = minutesToTime(Math.min(END_HOUR * 60, startMin + 60));
-                          if (isSlotBlocked(di, date, startTime, endTime)) {
+                          if (isSlotBlocked(di, startTime, endTime)) {
                             toast({ title: "That slot is occupied", description: "Notes can't be added on class or consultation hours.", status: "info", duration: 4000 });
                             return;
                           }
@@ -769,7 +769,7 @@ const saveConsultationHours = async () => {
                 <Box bg={cardBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
                   <form onSubmit={handleFlagDate}>
                     <HStack spacing={4} alignItems="flex-end" flexWrap="wrap">
-                      <FormControl><FormLabel color={textColor} fontSize="sm">Emergency Absence</FormLabel><Input type="date" size="sm" value={flagDate} onChange={e => setFlagDate(e.target.value)} color={textColor} /></FormControl>
+                      <FormControl><FormLabel color={textColor} fontSize="sm">Emergency Absence</FormLabel><Input type="date" size="sm" value={flagDate} onChange={e => setFlagDate(e.target.value)} color={textColor} mb={2} /><Input type="text" size="sm" placeholder="Reason (optional)" value={flagReason} onChange={e => setFlagReason(e.target.value)} color={textColor} /></FormControl>
                       <ChakraButton type="submit" size="sm" colorScheme="red" px={6}>Mass Cancel Appts</ChakraButton>
                     </HStack>
                   </form>

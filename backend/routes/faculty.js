@@ -1,7 +1,30 @@
 const bcrypt = require('bcryptjs');
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
+
+// Blocks repeated password-guessing: after 10 failed/attempted logins from the
+// same IP within 15 minutes, further attempts are rejected until the window resets.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Same protection for the forgot-password request itself, so it can't be used
+// to spam a mailbox with reset links or to probe which emails are registered.
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many password reset requests. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const { sendVerificationEmail, sendResetEmail } = require('../utils/mailer');
 const User = require('../models/User'); 
 const Schedule = require('../models/Schedule');
 const Appointment = require('../models/Appointment');
@@ -66,6 +89,12 @@ router.post('/register', async (req, res) => {
     // Only accounts that need no ID (e.g. none required for this role) skip straight to ACTIVE.
     const accountStatus = (role === 'STUDENT' || role === 'FACULTY') ? 'PENDING_APPROVAL' : 'ACTIVE';
 
+    // Email verification: generate a one-time token, store only its hash (same
+    // principle as the password itself — if the database ever leaked, a stored
+    // raw token would let anyone verify/hijack any pending account).
+    const rawVerificationToken = crypto.randomBytes(32).toString('hex');
+    const hashedVerificationToken = crypto.createHash('sha256').update(rawVerificationToken).digest('hex');
+
     const newUser = await User.create({
       name,
       email: email.toLowerCase(),
@@ -75,8 +104,15 @@ router.post('/register', async (req, res) => {
       schoolId,
       facultyId,
       accountStatus,
-      currentStatus: 'OUT_OF_OFFICE'
+      currentStatus: 'OUT_OF_OFFICE',
+      isVerified: false,
+      verificationToken: hashedVerificationToken,
+      verificationTokenExpires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
     });
+
+    const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+    const verificationLink = `${frontendUrl}/verify-email/${rawVerificationToken}`;
+    await sendVerificationEmail(newUser.email, verificationLink);
 
     if (accountStatus === 'PENDING_APPROVAL') {
       await notifyRole('ADMIN', {
@@ -86,9 +122,9 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    res.json({ 
-      message: role === 'STUDENT' ? 'Registration successful!' : 'Registration submitted. Awaiting Admin approval.',
-      accountStatus 
+    res.json({
+      message: 'Registration received! Please check your email to verify your account before logging in.',
+      accountStatus
     });
 
   } catch (error) {
@@ -98,7 +134,7 @@ router.post('/register', async (req, res) => {
 });
 
 // === 2. SECURE LOGIN ROUTE ===
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -117,6 +153,9 @@ router.post('/login', async (req, res) => {
     }
     if (user.accountStatus === 'ARCHIVED' || user.accountStatus === 'RESTRICTED') {
       return res.status(403).json({ error: 'Access Denied: Your account has been restricted or archived.' });
+    }
+    if (!user.isVerified) {
+      return res.status(403).json({ error: 'Please verify your email address before logging in. Check your inbox for the verification link.' });
     }
 
     // 3. Cryptographically verify the password (Declared only ONCE)
@@ -812,6 +851,100 @@ router.patch('/notifications/:id/read', requireAuth(ALL_ROLES), async (req, res)
     res.json({ message: 'Marked as read.' });
   } catch (error) {
     res.status(500).json({ error: 'Server error updating notification.' });
+  }
+});
+
+// =========================================================================
+// === EMAIL VERIFICATION ===
+// =========================================================================
+
+// Confirms the token from the verification email and activates the account.
+router.get('/verify-email/:token', async (req, res) => {
+  try {
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+    const user = await User.findOne({
+      verificationToken: hashedToken,
+      verificationTokenExpires: { $gt: Date.now() }
+    }).select('+verificationToken +verificationTokenExpires');
+
+    if (!user) {
+      return res.status(400).json({ error: 'This verification link is invalid or has expired.' });
+    }
+
+    user.isVerified = true;
+    user.verificationToken = undefined;
+    user.verificationTokenExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Email verified! You can now log in.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error verifying email.' });
+  }
+});
+
+// =========================================================================
+// === FORGOT PASSWORD ===
+// =========================================================================
+
+// Step 1: request a reset link. Always replies with the same neutral message,
+// whether or not that email belongs to an account — this stops the endpoint
+// being used to check which emails are registered students/faculty.
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email: (email || '').toLowerCase() });
+
+    if (user) {
+      const rawResetToken = crypto.randomBytes(32).toString('hex');
+      const hashedResetToken = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+
+      user.resetPasswordToken = hashedResetToken;
+      user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 minutes
+      await user.save();
+
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+      const resetLink = `${frontendUrl}/reset-password/${rawResetToken}`;
+      await sendResetEmail(user.email, resetLink);
+    }
+
+    res.json({ message: 'If an account exists for this email, a password reset link has been sent.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error processing the request.' });
+  }
+});
+
+// Step 2: the link's token is checked, the new password is validated with the
+// same rule used at registration, and the token is single-use (cleared on success).
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+
+    const passwordPattern = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+    if (!passwordPattern.test(newPassword)) {
+      return res.status(400).json({ error: 'Password must be at least 12 characters, with 1 uppercase letter, 1 number, and 1 symbol.' });
+    }
+
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() }
+    }).select('+resetPasswordToken +resetPasswordExpires');
+
+    if (!user) {
+      return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    res.json({ message: 'Password updated. You can now log in with your new password.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error resetting password.' });
   }
 });
 

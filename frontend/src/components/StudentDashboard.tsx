@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
-  Badge, Select, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
+  Badge, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
   useColorMode, useColorModeValue
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
