@@ -5,6 +5,8 @@ import AdminDashboard from './components/AdminDashboard';
 import DeanDashboard from './components/DeanDashboard';
 import StudentDashboard from './components/StudentDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
+import VerifyEmail from './components/VerifyEmail';
+import ResetPassword from './components/ResetPassword';
 // import StudentCheckIn from './components/StudentCheckIn';
 
 
@@ -56,7 +58,11 @@ export default function App() {
         />
 
         {/* <Route element={<StudentCheckIn />} path="/attend/:token" /> */}
-        
+
+        {/* Public: links clicked from the verification / password-reset emails */}
+        <Route path="/verify-email/:token" element={<VerifyEmail />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
+
         {/* Catch-all: If they type a weird URL or try to bypass, send them to login */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

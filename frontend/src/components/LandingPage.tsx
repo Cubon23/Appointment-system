@@ -167,6 +167,11 @@ export default function LandingPage() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showLoginPw, setShowLoginPw] = useState(false);
 
+  // Forgot Password modal state
+  const { isOpen: isForgotOpen, onOpen: onForgotOpen, onClose: onForgotClose } = useDisclosure();
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [isSendingReset, setIsSendingReset] = useState(false);
+
   // Registration State
   const [regName, setRegName] = useState('');
   const [nameSuffix, setNameSuffix] = useState(''); // NEW: Tracks Jr., Sr., etc.
@@ -245,6 +250,40 @@ export default function LandingPage() {
       toast({ title: 'Authentication Failed', description: error.message, status: 'error', position: 'top' });
     }
     setIsLoggingIn(false);
+  };
+
+  // --- FORGOT PASSWORD HANDLER ---
+  // Always shows the same success message whether or not the email exists,
+  // because the backend intentionally gives a neutral response (prevents
+  // someone from using this form to check which emails are registered).
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingReset(true);
+
+    try {
+      const fullEmail = `${forgotEmail.trim()}@ua.edu.ph`;
+
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: fullEmail })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Something went wrong.');
+
+      toast({
+        title: 'Check your email',
+        description: data.message,
+        status: 'success',
+        duration: 6000
+      });
+      setForgotEmail('');
+      onForgotClose();
+    } catch (error: any) {
+      toast({ title: 'Request failed', description: error.message, status: 'error' });
+    }
+    setIsSendingReset(false);
   };
 
 
@@ -377,6 +416,11 @@ export default function LandingPage() {
                           />
                         </InputRightElement>
                       </InputGroup>
+                      <Flex justify="flex-end" mt={1}>
+                        <ChakraLink fontSize="sm" color={linkColor} onClick={onForgotOpen}>
+                          Forgot password?
+                        </ChakraLink>
+                      </Flex>
                     </FormControl>
                     <Button type="submit" colorScheme="blue" size="lg" w="100%" isLoading={isLoggingIn}>Secure Login</Button>
                   </VStack>
@@ -811,6 +855,38 @@ export default function LandingPage() {
           <ModalCloseButton />
           <ModalBody p={0}>
             {authTabs}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Forgot Password Modal */}
+      <Modal isOpen={isForgotOpen} onClose={onForgotClose} isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="2xl" overflow="hidden" bg={modalBg}>
+          <ModalHeader color={headingColor}>Reset your password</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={8}>
+            <Text fontSize="sm" color="gray.500" mb={4}>
+              Enter your university email and we'll send you a link to set a new password. The link expires in 15 minutes.
+            </Text>
+            <form onSubmit={handleForgotPassword}>
+              <FormControl isRequired>
+                <FormLabel>University Email</FormLabel>
+                <InputGroup>
+                  <Input
+                    placeholder="e.g. jdelacruz"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                  />
+                  <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+                    @ua.edu.ph
+                  </InputRightAddon>
+                </InputGroup>
+              </FormControl>
+              <Button type="submit" colorScheme="blue" size="lg" w="100%" mt={5} isLoading={isSendingReset}>
+                Send Reset Link
+              </Button>
+            </form>
           </ModalBody>
         </ModalContent>
       </Modal>
