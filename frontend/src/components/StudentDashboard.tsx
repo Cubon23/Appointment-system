@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { cohortConfig } from '../data/cohortConfig';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
@@ -30,7 +31,7 @@ export default function StudentDashboard() {
 
   const [activePage, setActivePage] = useState('home');
   const [faculty, setFaculty] = useState<any[]>([]);
-  const [studentSection, setStudentSection] = useState(localStorage.getItem('programPosition') || '');
+  const [studentSection] = useState(localStorage.getItem('programPosition') || '');
 
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [facultySearch, setFacultySearch] = useState('');
@@ -149,8 +150,29 @@ export default function StudentDashboard() {
 
   const selectedFacultyObj = faculty.find(f => f._id === selectedFaculty);
 
+  // Validates "Your Section" against the real program/year/section structure (e.g. "BS INFO 4D"),
+  // rather than trusting whatever was typed. Returns an error message, or null if valid.
+  const validateStudentSection = (input: string): string | null => {
+    const trimmed = input.trim();
+    const match = trimmed.match(/^(.+)\s(\d)([A-Za-z])$/);
+    if (!match) return 'Format must be like "BS INFO 4D" (program, year, section).';
+    const [, program, year, letter] = match;
+    const section = letter.toUpperCase();
+    if (!cohortConfig[program]) return `"${program}" isn't a recognized program.`;
+    if (!cohortConfig[program][year]) return `Year ${year} isn't valid for ${program}.`;
+    if (!cohortConfig[program][year].includes(section)) return `Section ${section} isn't valid for ${program} Year ${year}.`;
+    return null;
+  };
+
   const handleAppointmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const sectionError = validateStudentSection(studentSection);
+    if (sectionError) {
+      toast({ title: 'Invalid section', description: sectionError, status: 'warning' });
+      return;
+    }
+
     setIsSubmitting(true);
     
     try {
@@ -302,7 +324,11 @@ export default function StudentDashboard() {
               <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" w="600px" maxW="100%">
                 <form onSubmit={handleAppointmentSubmit}>
                   <VStack spacing={4}>
-                    <FormControl isRequired><FormLabel color={textColor}>Your Section</FormLabel><Input value={studentSection} onChange={(e) => setStudentSection(e.target.value)} placeholder="e.g. BS INFO 3D" color={textColor} borderColor={borderColor}/></FormControl>
+                    <FormControl isRequired>
+                      <FormLabel color={textColor}>Your Section</FormLabel>
+                      <Input value={studentSection} isReadOnly color={textColor} borderColor={borderColor} bg={useColorModeValue('gray.50', 'whiteAlpha.100')} cursor="not-allowed" />
+                      <Text fontSize="xs" color={mutedText} mt={1}>From your account registration. Contact an admin if this is wrong.</Text>
+                    </FormControl>
                     <FormControl isRequired>
                       <FormLabel color={textColor}>Select Professor</FormLabel>
                       <Input
@@ -379,11 +405,12 @@ export default function StudentDashboard() {
                         ) : (
                           <VStack align="stretch" spacing={1} pl={2}>
                             {weeklyHoursByDay[i].map((entry, idx) => (
-                              <HStack key={idx} justify="space-between">
-                                <Badge colorScheme={entry.label === 'Class Hours' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md">
+                              <HStack key={idx} spacing={2} align="center">
+                                <Badge colorScheme={entry.label === 'Class Hours' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md" flexShrink={0}>
                                   {entry.label}
                                 </Badge>
-                                <Text fontSize="xs" color={mutedText}>{formatTime(entry.start)} – {formatTime(entry.end)}</Text>
+                                <Box flex="1" borderBottom="2px dotted" borderColor={mutedText} opacity={0.6} minW="12px" alignSelf="flex-end" mb="3px" />
+                                <Text fontSize="xs" color={mutedText} flexShrink={0} whiteSpace="nowrap">{formatTime(entry.start)} – {formatTime(entry.end)}</Text>
                               </HStack>
                             ))}
                           </VStack>

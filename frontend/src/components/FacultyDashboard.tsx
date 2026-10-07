@@ -877,7 +877,7 @@ const saveConsultationHours = async () => {
                     <ChakraButton size="sm" colorScheme="red" variant="ghost" onClick={() => removeBlock(i)}>✕</ChakraButton>
                   </HStack>
                 ))}
-                <ChakraButton size="sm" variant="outline" onClick={addBlock}>+ Add Block</ChakraButton>
+                <ChakraButton size="sm" variant="outline" onClick={addBlock} isDisabled={isValidTotal}>+ Add Block</ChakraButton>
                 <Text fontSize="sm" fontWeight="bold" color={isValidTotal ? 'green.500' : 'red.500'}>
                   Total: {totalHours} / 4.0 hours
                 </Text>
@@ -928,7 +928,7 @@ const saveConsultationHours = async () => {
           <Box h="100%" overflowY="auto" p={6}>
             {/* Approved consultations awaiting sign-off */}
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" mb={6} className="no-print">
-              <Heading size="md" color={textColor} mb={4}>Awaiting Sign-Off</Heading>
+              <Heading size="md" color={textColor} mb={4}>Log consultation details</Heading>
               {myAppointments.filter(a => a.status === 'APPROVED').length === 0 ? (
                 <Text color={mutedText}>No completed consultations to log.</Text>
               ) : myAppointments.filter(a => a.status === 'APPROVED').map(apt => (
@@ -942,7 +942,7 @@ const saveConsultationHours = async () => {
                       onChange={e => setLogForm({...logForm, [apt._id]: {...logForm[apt._id], interventionTaken: e.target.value}})} />
                     <Textarea size="sm" placeholder="Remarks" value={logForm[apt._id]?.remarks || ''}
                       onChange={e => setLogForm({...logForm, [apt._id]: {...logForm[apt._id], remarks: e.target.value}})} />
-                    <ChakraButton size="sm" colorScheme="green" onClick={() => submitLogEntry(apt._id)}>Complete & Sign Off</ChakraButton>
+                    <ChakraButton size="sm" colorScheme="green" onClick={() => submitLogEntry(apt._id)}>Submit Consultation Log</ChakraButton>
                   </VStack>
                 </Box>
               ))}

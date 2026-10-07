@@ -115,9 +115,9 @@ function HeroArt() {
 }
 
 const SERVICES = [
-  { icon: CapIcon, title: 'Academic Advising', text: 'Course planning, program requirements, and strategies for academic success.' },
-  { icon: RocketIcon, title: 'Capstone & Project Help', text: 'From capstone proposals to coding issues, get guidance from your faculty.' },
-  { icon: ChatBubbleIcon, title: 'Open Consultation', text: 'Grades, schedules, or anything else. Book a time with the right faculty member.' },
+  { icon: CapIcon, title: 'Need Academic Advising?', text: 'Course planning, program requirements, and strategies for academic success.' },
+  { icon: RocketIcon, title: 'Need Capstone & Project Help?', text: 'From capstone proposals to coding issues, get guidance from your faculty.' },
+  { icon: ChatBubbleIcon, title: 'Open Consultation?', text: 'Grades, schedules, or anything else. Book a time with the right faculty member.' },
 ];
 
 const STEPS = [
@@ -228,6 +228,7 @@ export default function LandingPage() {
       localStorage.setItem('userName', data.name);
       localStorage.setItem('userRole', data.role);
       localStorage.setItem('token', data.token);
+      localStorage.setItem('programPosition', data.programPosition || '');
 
       toast({ title: 'Login Successful', status: 'success', duration: 2000 });
 
@@ -552,14 +553,16 @@ export default function LandingPage() {
             />
           </FormControl>
         )}
-        <FormControl>
-          <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
-          <Input 
-            placeholder="e.g. UA-COSFM-2022-1234" 
-            value={facultyId} 
-            onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
-          />
-        </FormControl>
+        {regRole === 'FACULTY' && (
+          <FormControl>
+            <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
+            <Input 
+              placeholder="e.g. UA-COSFM-2022-1234" 
+              value={facultyId} 
+              onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
+            />
+          </FormControl>
+        )}
 
         {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
         <FormControl isRequired>
@@ -712,7 +715,7 @@ export default function LandingPage() {
       <Box id="services" py={{ base: 14, md: 20 }} scrollMarginTop="72px">
         <Container maxW="5xl">
           <Heading textAlign="center" fontSize={{ base: 'xl', md: '2xl' }} fontWeight="800" letterSpacing="0.08em" textTransform="uppercase" color={headingColor} mb={10}>
-            Our Services
+            Our Service
           </Heading>
           <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
             {SERVICES.map((s) => (
@@ -723,7 +726,7 @@ export default function LandingPage() {
                 <Heading as="h3" fontSize="md" fontWeight="800" letterSpacing="0.06em" textTransform="uppercase">{s.title}</Heading>
                 <Text fontSize="sm" color="whiteAlpha.900" flex="1">{s.text}</Text>
                 <Button size="sm" px={8} mt={2} bg="white" color={NAVY} borderRadius="full" fontWeight="800"
-                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth(0)}>BOOK</Button>
+                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth(0)}>BOOK NOW!</Button>
               </VStack>
             ))}
           </SimpleGrid>
@@ -813,7 +816,7 @@ export default function LandingPage() {
                 <Box>
                   <Text fontWeight="700" fontSize="sm" color={headingColor}>Email</Text>
                   {/* TODO: replace placeholder email */}
-                  <Text color={bodyColor} fontSize="sm">gowkgowk.support@ua.edu.ph</Text>
+                  <Text color={bodyColor} fontSize="sm">ccis.support@ua.edu.ph</Text>
                 </Box>
               </HStack>
               <HStack align="flex-start">
@@ -839,7 +842,7 @@ export default function LandingPage() {
           </Stack>
 
           <Text mt={10} fontSize="xs" color={bodyColor} textAlign="center">
-            © {new Date().getFullYear()} CCIS Sync — The Gwok Gwoks
+            © {new Date().getFullYear()} CCIS Sync — The Alpha Drive
           </Text>
         </Container>
       </Box>

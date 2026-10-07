@@ -1,0 +1,36 @@
+warning: in the working copy of 'frontend/src/components/LandingPage.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/frontend/src/components/LandingPage.tsx b/frontend/src/components/LandingPage.tsx[m
+[1mindex c97c04a..812cb8d 100644[m
+[1m--- a/frontend/src/components/LandingPage.tsx[m
+[1m+++ b/frontend/src/components/LandingPage.tsx[m
+[36m@@ -115,9 +115,9 @@[m [mfunction HeroArt() {[m
+ }[m
+ [m
+ const SERVICES = [[m
+[31m-  { icon: CapIcon, title: 'Academic Advising', text: 'Course planning, program requirements, and strategies for academic success.' },[m
+[31m-  { icon: RocketIcon, title: 'Capstone & Project Help', text: 'From capstone proposals to coding issues, get guidance from your faculty.' },[m
+[31m-  { icon: ChatBubbleIcon, title: 'Open Consultation', text: 'Grades, schedules, or anything else. Book a time with the right faculty member.' },[m
+[32m+[m[32m  { icon: CapIcon, title: 'Need Academic Advising?', text: 'Course planning, program requirements, and strategies for academic success.' },[m
+[32m+[m[32m  { icon: RocketIcon, title: 'Need Capstone & Project Help?', text: 'From capstone proposals to coding issues, get guidance from your faculty.' },[m
+[32m+[m[32m  { icon: ChatBubbleIcon, title: 'Open Consultation?', text: 'Grades, schedules, or anything else. Book a time with the right faculty member.' },[m
+ ];[m
+ [m
+ const STEPS = [[m
+[36m@@ -668,7 +668,7 @@[m [mexport default function LandingPage() {[m
+       <Box id="services" py={{ base: 14, md: 20 }} scrollMarginTop="72px">[m
+         <Container maxW="5xl">[m
+           <Heading textAlign="center" fontSize={{ base: 'xl', md: '2xl' }} fontWeight="800" letterSpacing="0.08em" textTransform="uppercase" color={headingColor} mb={10}>[m
+[31m-            Our Services[m
+[32m+[m[32m            Our Service[m
+           </Heading>[m
+           <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>[m
+             {SERVICES.map((s) => ([m
+[36m@@ -679,7 +679,7 @@[m [mexport default function LandingPage() {[m
+                 <Heading as="h3" fontSize="md" fontWeight="800" letterSpacing="0.06em" textTransform="uppercase">{s.title}</Heading>[m
+                 <Text fontSize="sm" color="whiteAlpha.900" flex="1">{s.text}</Text>[m
+                 <Button size="sm" px={8} mt={2} bg="white" color={NAVY} borderRadius="full" fontWeight="800"[m
+[31m-                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth(0)}>BOOK</Button>[m
+[32m+[m[32m                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth(0)}>BOOK NOW!</Button>[m
+               </VStack>[m
+             ))}[m
+           </SimpleGrid>[m
