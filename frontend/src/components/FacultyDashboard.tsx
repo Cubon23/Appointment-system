@@ -174,6 +174,8 @@ export default function FacultyDashboard() {
 
   const [consultLog, setConsultLog] = useState<any[]>([]);
   const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
+  // Shown right after a consultation is successfully signed off.
+  const [completionModal, setCompletionModal] = useState<{ studentName: string; studentSection: string } | null>(null);
 
   // Manual, print-only edits for the VAA-FM-035 consultation form table.
   // System-booked rows (from consultLog) come pre-filled; blank rows are for
@@ -247,6 +249,7 @@ useEffect(() => { fetchLog(); }, []);
 
 const submitLogEntry = async (aptId: string) => {
   const entry = logForm[aptId] || { casePresented: '', interventionTaken: '', remarks: '' };
+  const apt = myAppointments.find(a => a._id === aptId);
   try {
     const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${aptId}/complete`, {
       method: 'PATCH',
@@ -255,8 +258,8 @@ const submitLogEntry = async (aptId: string) => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
-    toast({ title: 'Consultation Logged', description: data.message, status: 'success' });
     fetchLog();
+    setCompletionModal({ studentName: apt?.studentName || 'Student', studentSection: apt?.studentSection || '' });
     // fetchAppointments(); // whatever function currently refreshes myAppointments
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
@@ -886,6 +889,26 @@ const saveConsultationHours = async () => {
                   </HStack>
                 </HStack>
               </VStack>
+            </Box>
+          </Box>
+        )}
+
+        {completionModal && (
+          <Box
+            position="fixed" top="0" left="0" right="0" bottom="0" bg="rgba(0,0,0,0.45)"
+            display="flex" alignItems="center" justifyContent="center" zIndex={60}
+            onClick={() => setCompletionModal(null)}
+          >
+            <Box
+              bg={cardBg} borderRadius="lg" shadow="xl" p={8} w="90%" maxW="360px" textAlign="center"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
+              <Box fontSize="40px" mb={2}>✅</Box>
+              <Heading size="md" color={textColor} mb={2}>Consultation Completed</Heading>
+              <Text color={mutedText} fontSize="sm" mb={6}>
+                {completionModal.studentName}{completionModal.studentSection ? ` (${completionModal.studentSection})` : ''} has been signed off and added to your Consultation Log.
+              </Text>
+              <ChakraButton colorScheme="green" size="sm" onClick={() => setCompletionModal(null)}>Done</ChakraButton>
             </Box>
           </Box>
         )}
