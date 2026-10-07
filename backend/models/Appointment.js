@@ -10,6 +10,7 @@ const AppointmentSchema = new mongoose.Schema({
   time: { type: String, required: true },
   reason: { type: String, required: true },
   status: { type: String, default: 'PENDING' }, // PENDING, APPROVED, REJECTED, COMPLETED
+  reminderSent: { type: Boolean, default: false }, // has the 1-hour-before reminder already been sent to faculty?
 
   // === Consultation Log fields (VAA-FM-035), filled AFTER the consultation ===
   casePresented:     { type: String },
