@@ -24,7 +24,8 @@ interface ScheduleEvent {
   section:     string;     
   room:        string;     
   type:        EventType;
-  dayOfWeek:   number;     
+  completed?:  boolean;
+  dayOfWeek:   number;
   startHour:   number;
   startMinute: number;
   endHour:     number;
@@ -476,7 +477,9 @@ const saveConsultationHours = async () => {
       });
     });
 
-    const approvedApts = myAppointments.filter(a => a.status === 'APPROVED');
+    // Keep completed consultations visible on the master schedule too, so the
+    // weekly grid still shows who/when even after sign-off — just labeled.
+    const approvedApts = myAppointments.filter(a => a.status === 'APPROVED' || a.status === 'COMPLETED');
     approvedApts.forEach(apt => {
         const aptDate = new Date(apt.date);
         const dayIndex = weekDates.findIndex(wd => 
@@ -496,6 +499,7 @@ const saveConsultationHours = async () => {
               section: apt.studentSection || '',
               room: apt.reason,
               type: "appointment",
+              completed: apt.status === 'COMPLETED',
               dayOfWeek: dayIndex,
               startHour: sH,
               startMinute: sM,
@@ -723,10 +727,11 @@ const saveConsultationHours = async () => {
                           const textCol = isTeach ? C.teachText : isConsult ? C.consultText : C.apptText;
 
                           return (
-                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}`} onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
+                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}${event.completed ? ' · Completed' : ''}`} onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box", opacity: event.completed ? 0.7 : 1 }}>
                               <div style={{ fontSize: "11px", fontWeight: 700, color: textCol, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.subject}</div>
                               {height > 44 && (<div style={{ fontSize: "10px", color: textCol, opacity: 0.72, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.section}</div>)}
-                              {height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
+                              {event.completed && height > 44 && (<div style={{ fontSize: "9.5px", fontWeight: 700, color: textCol, opacity: 0.75, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px", fontStyle: "italic" }}>(Completed)</div>)}
+                              {!event.completed && height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
                             </div>
                           );
                         })}

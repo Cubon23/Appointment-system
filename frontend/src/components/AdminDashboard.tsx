@@ -581,11 +581,16 @@ export default function AdminDashboard() {
               <Tbody>
                 {appointments.map(apt => (
                   <Tr key={apt._id}>
-                    <Td fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection})</Td>
+                    <Td fontWeight="bold" color={textColor}>
+                      {apt.studentName} ({apt.studentSection})
+                      {apt.status === 'COMPLETED' && (
+                        <Text fontSize="xs" fontWeight="normal" color="green.500">(Completed)</Text>
+                      )}
+                    </Td>
                     <Td color={textColor}>{apt.facultyId ? apt.facultyId.name : 'Unknown'}</Td>
                     <Td color={textColor}>{apt.date} {formatTime(apt.time)}</Td>
                     <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
-                    <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : 'yellow'}>{apt.status}</Badge></Td>
+                    <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'COMPLETED' ? 'blue' : 'yellow'}>{apt.status}</Badge></Td>
                     <Td>
                       {apt.status === 'PENDING' && (
                         <HStack spacing={2}>
