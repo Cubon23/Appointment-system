@@ -385,7 +385,7 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
 // 8. POST ROUTE: Student requests an appointment
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
-    const { facultyId, date, time, studentName, studentSection, reason } = req.body;
+    const { facultyId, date, time, studentName, studentSection, studentGender, reason } = req.body;
     
     const studentId = req.user.userId; // from the verified login token, not the request body
 
@@ -458,6 +458,7 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
       studentId,
       studentName,
       studentSection,
+      studentGender: studentGender || '',
       date,
       time,
       reason,
