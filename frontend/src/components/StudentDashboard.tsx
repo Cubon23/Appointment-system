@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
-  useColorMode, useColorModeValue
+  useColorMode, useColorModeValue,
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import NotificationBell from './NotificationBell';
@@ -42,6 +43,9 @@ export default function StudentDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [myRequests, setMyRequests] = useState<any[]>([]);
+  const { isOpen: isSummaryOpen, onOpen: onSummaryOpen, onClose: onSummaryClose } = useDisclosure();
+  const [summaryApt, setSummaryApt] = useState<any>(null);
+  const viewAccomplishment = (apt: any) => { setSummaryApt(apt); onSummaryOpen(); };
 
   // ── Custom Theme Tokens ───────────────────────────────────────────────
   const dk = colorMode === 'dark';
@@ -410,6 +414,9 @@ export default function StudentDashboard() {
                           {apt.status === 'PENDING' && (
                             <ChakraButton size="xs" colorScheme="gray" variant="outline" onClick={() => handleCancelAppointment(apt._id)}>Cancel Request</ChakraButton>
                           )}
+                          {apt.status === 'COMPLETED' && (
+                            <ChakraButton size="xs" colorScheme="green" variant="outline" onClick={() => viewAccomplishment(apt)}>View Accomplishment</ChakraButton>
+                          )}
                         </Td>
                       </Tr>
                     ))}
@@ -421,7 +428,47 @@ export default function StudentDashboard() {
           )}
         </div>
       </main>
+
+      {/* Accomplishment view: read-only summary of a signed-off consultation.
+          The student can't edit this — only the faculty member who completed
+          the consultation can write casePresented/interventionTaken/remarks,
+          via FacultyDashboard's "Complete & Sign Off" form. */}
+      <Modal isOpen={isSummaryOpen} onClose={onSummaryClose} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Consultation Accomplishment</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={8}>
+            <VStack align="stretch" spacing={4}>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Faculty</Text>
+                <Text color={textColor}>{summaryApt?.facultyId?.name || 'Unknown'}</Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Date</Text>
+                <Text color={textColor}>{summaryApt?.date} {summaryApt ? formatTime(summaryApt.time) : ''}</Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Case Presented</Text>
+                <Text color={textColor}>{summaryApt?.casePresented || '—'}</Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Intervention / Action Taken</Text>
+                <Text color={textColor}>{summaryApt?.interventionTaken || '—'}</Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Remarks</Text>
+                <Text color={textColor}>{summaryApt?.remarks || '—'}</Text>
+              </Box>
+              <Box>
+                <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Signed Off</Text>
+                <Text color={textColor}>{summaryApt?.completedAt ? new Date(summaryApt.completedAt).toLocaleString() : '—'}</Text>
+              </Box>
+            </VStack>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
     </div>
-    
+
   );
 }

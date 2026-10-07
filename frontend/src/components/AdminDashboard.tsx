@@ -8,6 +8,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
 import NotificationBell from './NotificationBell';
+import SimpleBarChart from './SimpleBarChart';
 // import { QRCodeSVG } from 'qrcode.react';
 
 export const formatTime = (timeStr: string) => {
@@ -81,6 +82,80 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => { fetchAllData(); }, []);
+
+  // === Analytics: all computed client-side from the appointments already
+  // fetched via GET /appointments/all. No new backend endpoint needed — the
+  // data we need (status, date, facultyId, completion fields) is already
+  // returned by that route. ===
+  const statusCounts = React.useMemo(() => {
+    const order = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'];
+    return order.map(status => ({
+      label: status.charAt(0) + status.slice(1).toLowerCase(),
+      value: appointments.filter(a => a.status === status).length,
+    }));
+  }, [appointments]);
+
+  const weeklyTrend = React.useMemo(() => {
+    // Group appointments into the 8 most recent calendar weeks (Mon-Sun),
+    // by their requested consultation date (not createdAt), so the chart
+    // reflects when consultations are scheduled, not when they were booked.
+    const weeks: { label: string; start: Date; value: number }[] = [];
+    const now = new Date();
+    const startOfWeek = (d: Date) => {
+      const copy = new Date(d);
+      const day = copy.getDay();
+      const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
+      copy.setDate(copy.getDate() + diff);
+      copy.setHours(0, 0, 0, 0);
+      return copy;
+    };
+    const thisWeekStart = startOfWeek(now);
+    for (let i = 7; i >= 0; i--) {
+      const start = new Date(thisWeekStart);
+      start.setDate(start.getDate() - i * 7);
+      const label = `${start.getMonth() + 1}/${start.getDate()}`;
+      weeks.push({ label, start, value: 0 });
+    }
+    appointments.forEach(a => {
+      if (!a.date) return;
+      const d = new Date(a.date);
+      if (isNaN(d.getTime())) return;
+      const ws = startOfWeek(d).getTime();
+      const match = weeks.find(w => w.start.getTime() === ws);
+      if (match) match.value += 1;
+    });
+    return weeks.map(({ label, value }) => ({ label, value }));
+  }, [appointments]);
+
+  const facultyUtilization = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    appointments.forEach(a => {
+      if (a.status !== 'COMPLETED') return;
+      const name = a.facultyId?.name || 'Unknown';
+      counts.set(name, (counts.get(name) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([label, value]) => ({ label, value }));
+  }, [appointments]);
+
+  const consultationRecords = React.useMemo(() => {
+    return appointments
+      .filter(a => a.status === 'COMPLETED')
+      .sort((a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime());
+  }, [appointments]);
+
+  const [recordsSearch, setRecordsSearch] = useState('');
+  const filteredRecords = React.useMemo(() => {
+    const q = recordsSearch.trim().toLowerCase();
+    if (!q) return consultationRecords;
+    return consultationRecords.filter(r =>
+      r.studentName?.toLowerCase().includes(q) ||
+      r.facultyId?.name?.toLowerCase().includes(q) ||
+      r.reason?.toLowerCase().includes(q)
+    );
+  }, [consultationRecords, recordsSearch]);
 
   const handleAddFaculty = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +268,9 @@ export default function AdminDashboard() {
             { page: "faculty", label: "Faculty Management" },
             { page: "appointments", label: `Appointments (${appointments.filter(a => a.status === 'PENDING').length})` },
             { page: "verification", label: "Verification Queue" },
-            { page: "students", label: "Student Management" }
+            { page: "students", label: "Student Management" },
+            { page: "analytics", label: "Reports & Analytics" },
+            { page: "records", label: "Consultation Records" }
           ].map(({ page, label }) => {
             const active = activePage === page;
             return (
@@ -226,6 +303,8 @@ export default function AdminDashboard() {
             {activePage === 'appointments' && "Appointment Management"}
             {activePage === 'verification' && "Account Verification Queue"}
             {activePage === 'students' && "Student Management"}
+            {activePage === 'analytics' && "Reports & Analytics"}
+            {activePage === 'records' && "Consultation Records"}
           </Heading>
           <Text color={mutedText} mt={1}>Welcome back, {userName}</Text>
         </Box>
@@ -396,6 +475,100 @@ export default function AdminDashboard() {
                       <Td color={textColor}>{student.email}</Td>
                     </Tr>
                   ))}
+              </Tbody>
+            </Table>
+          </Box>
+        )}
+
+        {(activePage === 'analytics' || activePage === 'records') && (
+          // Print support: when the browser prints, everything on the page is
+          // hidden except this wrapper (id="print-area"), and this wrapper is
+          // repositioned to the top of the page. The sidebar, nav, search box
+          // and buttons never show up in the printed/PDF output, only the
+          // report content itself. This is pure CSS, no extra library.
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              #print-area, #print-area * { visibility: visible; }
+              #print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+              .no-print { display: none !important; }
+            }
+          `}</style>
+        )}
+
+        {activePage === 'analytics' && (
+          <Box id="print-area" bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+            <HStack justifyContent="space-between" mb={6} className="no-print">
+              <Text color={mutedText} fontSize="sm">Computed from all {appointments.length} appointments on record.</Text>
+              <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Print Report</ChakraButton>
+            </HStack>
+            <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
+              <Heading size="md" color={textColor}>Reports & Analytics</Heading>
+              <Text fontSize="sm" color={mutedText}>Generated {new Date().toLocaleString()}</Text>
+            </Box>
+
+            <VStack align="stretch" spacing={8}>
+              <Box>
+                <Heading size="sm" color={mutedText} textTransform="uppercase" mb={4}>Appointments by Status</Heading>
+                <SimpleBarChart data={statusCounts} color="#2563eb" />
+              </Box>
+              <Divider borderColor={borderColor} />
+              <Box>
+                <Heading size="sm" color={mutedText} textTransform="uppercase" mb={4}>Appointments per Week (last 8 weeks)</Heading>
+                <SimpleBarChart data={weeklyTrend} color="#16a34a" />
+              </Box>
+              <Divider borderColor={borderColor} />
+              <Box>
+                <Heading size="sm" color={mutedText} textTransform="uppercase" mb={4}>Faculty Utilization (completed consultations)</Heading>
+                {facultyUtilization.length > 0
+                  ? <SimpleBarChart data={facultyUtilization} color="#f08a3c" />
+                  : <Text color={mutedText} fontSize="sm">No completed consultations yet.</Text>}
+              </Box>
+            </VStack>
+          </Box>
+        )}
+
+        {activePage === 'records' && (
+          <Box id="print-area" bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+            <HStack justifyContent="space-between" mb={4} className="no-print">
+              <Input
+                placeholder="Search by student, faculty, or reason..."
+                value={recordsSearch}
+                onChange={(e) => setRecordsSearch(e.target.value)}
+                maxW="320px" color={textColor} borderColor={borderColor}
+              />
+              <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Print Report</ChakraButton>
+            </HStack>
+            <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
+              <Heading size="md" color={textColor}>Consultation Records</Heading>
+              <Text fontSize="sm" color={mutedText}>Generated {new Date().toLocaleString()}</Text>
+            </Box>
+
+            <Table variant="simple" size="sm">
+              <Thead>
+                <Tr>
+                  <Th color={mutedText}>Date Signed Off</Th>
+                  <Th color={mutedText}>Student</Th>
+                  <Th color={mutedText}>Faculty</Th>
+                  <Th color={mutedText}>Case Presented</Th>
+                  <Th color={mutedText}>Intervention Taken</Th>
+                  <Th color={mutedText}>Remarks</Th>
+                </Tr>
+              </Thead>
+              <Tbody>
+                {filteredRecords.length === 0 && (
+                  <Tr><Td colSpan={6}><Text color={mutedText} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
+                )}
+                {filteredRecords.map(r => (
+                  <Tr key={r._id}>
+                    <Td color={textColor}>{r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}</Td>
+                    <Td fontWeight="bold" color={textColor}>{r.studentName} ({r.studentSection})</Td>
+                    <Td color={textColor}>{r.facultyId?.name || 'Unknown'}</Td>
+                    <Td maxW="200px" color={textColor}>{r.casePresented}</Td>
+                    <Td maxW="200px" color={textColor}>{r.interventionTaken}</Td>
+                    <Td maxW="160px" color={textColor}>{r.remarks}</Td>
+                  </Tr>
+                ))}
               </Tbody>
             </Table>
           </Box>
