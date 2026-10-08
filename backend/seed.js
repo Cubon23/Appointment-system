@@ -33,20 +33,22 @@ const seedDatabase = async () => {
     await User.create({ 
       role: 'ADMIN', 
       name: 'System Admin', 
-      email: 'admin@ua.edu.ph', 
+      email: 'admin@gmail.com', 
       password: defaultPassword,
       accountStatus: 'ACTIVE',
-      qrHash: 'admin_qr_999', 
+      isVerified: true,
+      qrHash: 'admin_qr_999',
       programPosition: 'IT Department' 
     });
 
     await User.create({ 
       role: 'DEAN', 
       name: 'John C. Amar, DMgt', 
-      email: 'jamar@ua.edu.ph', 
+      email: 'jamar@gmail.com', 
       password: defaultPassword,
       accountStatus: 'ACTIVE',
-      qrHash: 'dean_qr_777', 
+      isVerified: true,
+      qrHash: 'dean_qr_777',
       programPosition: 'Dean of CCIS', 
       currentStatus: 'AVAILABLE' 
     });
@@ -57,9 +59,10 @@ const seedDatabase = async () => {
     const instructors = await User.insertMany([
       {
         name: 'Ledilyn H. Colmo',
-        email: 'lcolmo@ua.edu.ph',
+        email: 'lcolmo@gmail.com',
         password: defaultPassword,
         accountStatus: 'ACTIVE',
+        isVerified: true,
         role: 'FACULTY',
         programPosition: 'Faculty / Librarian',
         qrHash: 'colmo_qr_2026', 
@@ -68,9 +71,10 @@ const seedDatabase = async () => {
       },
       {
         name: 'Mary Anne E. Edjan',
-        email: 'medjan@ua.edu.ph',
+        email: 'medjan@gmail.com',
         password: defaultPassword,
         accountStatus: 'ACTIVE',
+        isVerified: true,
         role: 'FACULTY',
         programPosition: 'Faculty',
         qrHash: 'edjan_qr_2026',
@@ -79,9 +83,10 @@ const seedDatabase = async () => {
       },
       {
         name: 'Ronnie C. Fortaleza',
-        email: 'rfortaleza@ua.edu.ph',
+        email: 'rfortaleza@gmail.com',
         password: defaultPassword,
         accountStatus: 'ACTIVE',
+        isVerified: true,
         role: 'FACULTY',
         programPosition: 'Faculty',
         qrHash: 'fortaleza_qr_2026',
@@ -90,9 +95,10 @@ const seedDatabase = async () => {
       },
       {
         name: 'Carl Spence Percy',
-        email: 'cpercy@ua.edu.ph',
+        email: 'cpercy@gmail.com',
         password: defaultPassword,
         accountStatus: 'ACTIVE',
+        isVerified: true,
         role: 'FACULTY',
         programPosition: 'Program Head, BSIT',
         qrHash: 'percy_qr_2026',
@@ -101,9 +107,10 @@ const seedDatabase = async () => {
       },
       {
         name: 'Sarah Mae R. Silva',
-        email: 'ssilva@ua.edu.ph',
+        email: 'ssilva@gmail.com',
         password: defaultPassword,
         accountStatus: 'ACTIVE',
+        isVerified: true,
         role: 'FACULTY',
         programPosition: 'Faculty',
         qrHash: 'silva_qr_2026',
