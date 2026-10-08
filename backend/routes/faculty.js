@@ -64,13 +64,14 @@ router.post('/register', async (req, res) => {
     // Originally this required @ua.edu.ph specifically. The school never actually
     // provisioned working mailboxes on that domain, so verification emails sent to
     // it silently went nowhere and nobody could complete registration. Per guidance
-    // from the school's own network administrator, this now accepts any real email
-    // (in practice, a personal Google/Gmail account) — identity is established by
-    // Admin's manual ID verification (PENDING_APPROVAL -> Verification Queue), not
-    // by the email domain.
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailPattern.test(email.toLowerCase())) {
-      return res.status(400).json({ error: 'Please enter a valid email address.' });
+    // from the school's own network administrator, this now requires @gmail.com
+    // specifically — not just any email — because mailer.js sends through Gmail SMTP,
+    // and a Gmail recipient is the one case we can be confident is actually
+    // deliverable (so the verify-email and forgot-password links reliably arrive).
+    // Identity itself is still established by Admin's manual ID verification
+    // (PENDING_APPROVAL -> Verification Queue), not by the email domain.
+    if (!email || !email.toLowerCase().endsWith('@gmail.com')) {
+      return res.status(400).json({ error: 'Please register with a Gmail address (e.g. yourname@gmail.com).' });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });

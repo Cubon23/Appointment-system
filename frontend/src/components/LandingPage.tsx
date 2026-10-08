@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast,
   FormControl, FormLabel, Select, useColorModeValue, Tabs, TabList, TabPanels, Tab, TabPanel,
-  HStack, InputGroup,
+  HStack, InputGroup, InputRightAddon,
   FormHelperText,
   InputRightElement,
   IconButton,
@@ -211,7 +211,7 @@ export default function LandingPage() {
     setIsLoggingIn(true);
     
     try {
-      const fullLoginEmail = loginEmail.trim().toLowerCase();
+      const fullLoginEmail = `${loginEmail.trim()}@gmail.com`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/login`, {
         method: 'POST',
@@ -262,7 +262,7 @@ export default function LandingPage() {
     setIsSendingReset(true);
 
     try {
-      const fullEmail = forgotEmail.trim().toLowerCase();
+      const fullEmail = `${forgotEmail.trim()}@gmail.com`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/forgot-password`, {
         method: 'POST',
@@ -324,7 +324,7 @@ export default function LandingPage() {
         ? `${selProgram} ${selYear}${selSection}` 
         : facultyPosition;
 
-      const fullRegEmail = regEmail.trim().toLowerCase();
+      const fullRegEmail = `${regEmail.trim()}@gmail.com`.toLowerCase();
 
       if (!passwordPattern.test(regPassword)) {
         toast({ 
@@ -391,13 +391,17 @@ export default function LandingPage() {
                 <form onSubmit={handleLogin}>
                   <VStack spacing={5}>
                     <FormControl isRequired>
-                      <FormLabel>Email Address</FormLabel>
-                      <Input
-                        type="email"
-                        placeholder="e.g. jdelacruz@gmail.com"
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
-                      />
+                      <FormLabel>Gmail Address</FormLabel>
+                      <InputGroup>
+                        <Input
+                          placeholder="e.g. jdelacruz"
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                        />
+                        <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+                          @gmail.com
+                        </InputRightAddon>
+                      </InputGroup>
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel>Password</FormLabel>
@@ -562,13 +566,17 @@ export default function LandingPage() {
 
         {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
         <FormControl isRequired>
-          <FormLabel>Email Address (Google/Gmail recommended)</FormLabel>
-          <Input
-            type="email"
-            placeholder="e.g. jdelacruz@gmail.com"
-            value={regEmail}
-            onChange={(e) => setRegEmail(e.target.value)}
-          />
+          <FormLabel>Gmail Address</FormLabel>
+          <InputGroup>
+            <Input
+              placeholder="e.g. jdelacruz"
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
+            />
+            <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+              @gmail.com
+            </InputRightAddon>
+          </InputGroup>
         </FormControl>
 
         <FormControl isRequired>
@@ -862,17 +870,21 @@ export default function LandingPage() {
           <ModalCloseButton />
           <ModalBody pb={8}>
             <Text fontSize="sm" color="gray.500" mb={4}>
-              Enter the email you registered with and we'll send you a link to set a new password. The link expires in 15 minutes.
+              Enter the Gmail address you registered with and we'll send you a link to set a new password. The link expires in 15 minutes.
             </Text>
             <form onSubmit={handleForgotPassword}>
               <FormControl isRequired>
-                <FormLabel>Email Address</FormLabel>
-                <Input
-                  type="email"
-                  placeholder="e.g. jdelacruz@gmail.com"
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                />
+                <FormLabel>Gmail Address</FormLabel>
+                <InputGroup>
+                  <Input
+                    placeholder="e.g. jdelacruz"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                  />
+                  <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
+                    @gmail.com
+                  </InputRightAddon>
+                </InputGroup>
               </FormControl>
               <Button type="submit" colorScheme="blue" size="lg" w="100%" mt={5} isLoading={isSendingReset}>
                 Send Reset Link
