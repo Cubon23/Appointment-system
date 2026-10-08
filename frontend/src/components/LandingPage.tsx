@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast,
   FormControl, FormLabel, Select, useColorModeValue, Tabs, TabList, TabPanels, Tab, TabPanel,
-  HStack, InputGroup, InputRightAddon,
+  HStack, InputGroup,
   FormHelperText,
   InputRightElement,
   IconButton,
@@ -127,7 +127,7 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'Who can use CCIS Sync?', a: 'Students and faculty of the College of Computing and Information Sciences, using a university (@ua.edu.ph) email address.' },
+  { q: 'Who can use CCIS Sync?', a: 'Students and faculty of the College of Computing and Information Sciences. Register with your Google (Gmail) account and your School/Faculty ID — Admin verifies every account before it’s activated.' },
   { q: 'How do I book a consultation?', a: 'Log in, choose a faculty member and an available time, then submit your request with a short reason. The faculty member approves or declines it, and you are notified in your Mail.' },
   { q: 'Can I cancel an appointment?', a: 'Yes. You can cancel your own appointment from your dashboard, and the faculty member is notified.' },
   { q: 'Why is my faculty account still pending?', a: 'Faculty accounts registered without an issued Faculty ID are verified by an administrator before access is granted.' },
@@ -211,7 +211,7 @@ export default function LandingPage() {
     setIsLoggingIn(true);
     
     try {
-      const fullLoginEmail = `${loginEmail.trim()}@ua.edu.ph`;
+      const fullLoginEmail = loginEmail.trim().toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/login`, {
         method: 'POST',
@@ -262,7 +262,7 @@ export default function LandingPage() {
     setIsSendingReset(true);
 
     try {
-      const fullEmail = `${forgotEmail.trim()}@ua.edu.ph`;
+      const fullEmail = forgotEmail.trim().toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/forgot-password`, {
         method: 'POST',
@@ -324,7 +324,7 @@ export default function LandingPage() {
         ? `${selProgram} ${selYear}${selSection}` 
         : facultyPosition;
 
-      const fullRegEmail = `${regEmail.trim()}@ua.edu.ph`;
+      const fullRegEmail = regEmail.trim().toLowerCase();
 
       if (!passwordPattern.test(regPassword)) {
         toast({ 
@@ -391,17 +391,13 @@ export default function LandingPage() {
                 <form onSubmit={handleLogin}>
                   <VStack spacing={5}>
                     <FormControl isRequired>
-                      <FormLabel>University Email</FormLabel>
-                      <InputGroup>
-                        <Input 
-                          placeholder="e.g. jdelacruz" 
-                          value={loginEmail} 
-                          onChange={(e) => setLoginEmail(e.target.value)} 
-                        />
-                        <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                          @ua.edu.ph
-                        </InputRightAddon>
-                      </InputGroup>
+                      <FormLabel>Email Address</FormLabel>
+                      <Input
+                        type="email"
+                        placeholder="e.g. jdelacruz@gmail.com"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                      />
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel>Password</FormLabel>
@@ -566,17 +562,13 @@ export default function LandingPage() {
 
         {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
         <FormControl isRequired>
-          <FormLabel>University Email</FormLabel>
-          <InputGroup>
-            <Input 
-              placeholder="e.g. jdelacruz" 
-              value={regEmail} 
-              onChange={(e) => setRegEmail(e.target.value)} 
-            />
-            <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-              @ua.edu.ph
-            </InputRightAddon>
-          </InputGroup>
+          <FormLabel>Email Address (Google/Gmail recommended)</FormLabel>
+          <Input
+            type="email"
+            placeholder="e.g. jdelacruz@gmail.com"
+            value={regEmail}
+            onChange={(e) => setRegEmail(e.target.value)}
+          />
         </FormControl>
 
         <FormControl isRequired>
@@ -870,21 +862,17 @@ export default function LandingPage() {
           <ModalCloseButton />
           <ModalBody pb={8}>
             <Text fontSize="sm" color="gray.500" mb={4}>
-              Enter your university email and we'll send you a link to set a new password. The link expires in 15 minutes.
+              Enter the email you registered with and we'll send you a link to set a new password. The link expires in 15 minutes.
             </Text>
             <form onSubmit={handleForgotPassword}>
               <FormControl isRequired>
-                <FormLabel>University Email</FormLabel>
-                <InputGroup>
-                  <Input
-                    placeholder="e.g. jdelacruz"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                  />
-                  <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                    @ua.edu.ph
-                  </InputRightAddon>
-                </InputGroup>
+                <FormLabel>Email Address</FormLabel>
+                <Input
+                  type="email"
+                  placeholder="e.g. jdelacruz@gmail.com"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                />
               </FormControl>
               <Button type="submit" colorScheme="blue" size="lg" w="100%" mt={5} isLoading={isSendingReset}>
                 Send Reset Link

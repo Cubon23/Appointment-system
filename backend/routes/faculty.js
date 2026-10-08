@@ -61,8 +61,16 @@ router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role, programPosition, schoolId, facultyId } = req.body;
 
-    if (!email.toLowerCase().endsWith('@ua.edu.ph')) {
-      return res.status(400).json({ error: 'Registration denied. You must use a valid @ua.edu.ph university email.' });
+    // Originally this required @ua.edu.ph specifically. The school never actually
+    // provisioned working mailboxes on that domain, so verification emails sent to
+    // it silently went nowhere and nobody could complete registration. Per guidance
+    // from the school's own network administrator, this now accepts any real email
+    // (in practice, a personal Google/Gmail account) — identity is established by
+    // Admin's manual ID verification (PENDING_APPROVAL -> Verification Queue), not
+    // by the email domain.
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailPattern.test(email.toLowerCase())) {
+      return res.status(400).json({ error: 'Please enter a valid email address.' });
     }
 
     const existingUser = await User.findOne({ email: email.toLowerCase() });
