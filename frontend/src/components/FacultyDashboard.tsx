@@ -24,7 +24,8 @@ interface ScheduleEvent {
   section:     string;     
   room:        string;     
   type:        EventType;
-  dayOfWeek:   number;     
+  completed?:  boolean;
+  dayOfWeek:   number;
   startHour:   number;
   startMinute: number;
   endHour:     number;
@@ -173,6 +174,70 @@ export default function FacultyDashboard() {
 
   const [consultLog, setConsultLog] = useState<any[]>([]);
   const [logForm, setLogForm] = useState<{[id: string]: {casePresented: string, interventionTaken: string, remarks: string}}>({});
+  // Shown right after a consultation is successfully signed off.
+  const [completionModal, setCompletionModal] = useState<{ studentName: string; studentSection: string } | null>(null);
+
+  // Manual, print-only edits for the VAA-FM-035 consultation form table.
+  // System-booked rows (from consultLog) come pre-filled; blank rows are for
+  // walk-in consultations the faculty logs by hand. Edits here only affect
+  // the on-screen/exported copy of the form — they are NOT saved back to the
+  // appointment records in the database.
+  type FormRowField = 'studentName' | 'studentSection' | 'studentGender' | 'date' | 'casePresented' | 'interventionTaken' | 'remarks';
+  const [formEdits, setFormEdits] = useState<{ [rowIndex: number]: Partial<Record<FormRowField, string>> }>({});
+  const editFormCell = (rowIndex: number, field: FormRowField, value: string) => {
+    setFormEdits(prev => ({ ...prev, [rowIndex]: { ...prev[rowIndex], [field]: value } }));
+  };
+
+// Builds the effective value for one cell of the printable consultation
+// form: a manual edit (if the faculty typed one) wins, otherwise fall back
+// to the system record for that row, otherwise blank.
+function formCellValue(
+  formEdits: { [rowIndex: number]: Partial<Record<string, string>> },
+  rowIndex: number,
+  field: string,
+  entry: any
+) {
+  const edited = formEdits[rowIndex]?.[field];
+  if (edited !== undefined) return edited;
+  return entry?.[field] || '';
+}
+
+// Downloads the consultation form as a .doc file. There's no Word-generation
+// library in this project (and installing one this close to defense is risky),
+// so this uses the standard trick of serving HTML with a Word MIME type and a
+// .doc extension — Word/LibreOffice/Google Docs all open it as a real document.
+function downloadFormAsWord(tableHtml: string, facultyName: string) {
+  const html = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset="utf-8"><title>Students' Consultation Form</title></head>
+    <body style="font-family: Calibri, Arial, sans-serif;">
+      <div style="text-align:center; margin-bottom:12px;">
+        <p style="margin:0;">Republic of the Philippines</p>
+        <p style="margin:0; font-weight:bold;">UNIVERSITY OF ANTIQUE</p>
+        <p style="margin:0;">Sibalom, Antique</p>
+        <h2 style="margin-top:14px; letter-spacing:1px;">STUDENTS' CONSULTATION FORM</h2>
+      </div>
+      <table style="width:100%; margin-bottom:10px;"><tr>
+        <td style="text-align:left;">Name of Faculty: <b>${facultyName}</b><br/>School Term: __________ Sem, AY __________</td>
+        <td style="text-align:right;">Consultation Schedule: __________</td>
+      </tr></table>
+      ${tableHtml}
+      <table style="width:100%; margin-top:10px; font-size:11px;"><tr>
+        <td style="text-align:left;">VAA-FM-035</td>
+        <td style="text-align:right;">Rev.1/01-15-20</td>
+      </tr></table>
+    </body>
+    </html>`;
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Consultation-Form-${facultyName.replace(/\s+/g, '-')}.doc`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const fetchLog = () => {
   authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-log/${userId}`)
@@ -184,6 +249,7 @@ useEffect(() => { fetchLog(); }, []);
 
 const submitLogEntry = async (aptId: string) => {
   const entry = logForm[aptId] || { casePresented: '', interventionTaken: '', remarks: '' };
+  const apt = myAppointments.find(a => a._id === aptId);
   try {
     const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${aptId}/complete`, {
       method: 'PATCH',
@@ -192,8 +258,8 @@ const submitLogEntry = async (aptId: string) => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error);
-    toast({ title: 'Consultation Logged', description: data.message, status: 'success' });
     fetchLog();
+    setCompletionModal({ studentName: apt?.studentName || 'Student', studentSection: apt?.studentSection || '' });
     // fetchAppointments(); // whatever function currently refreshes myAppointments
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
@@ -476,7 +542,9 @@ const saveConsultationHours = async () => {
       });
     });
 
-    const approvedApts = myAppointments.filter(a => a.status === 'APPROVED');
+    // Keep completed consultations visible on the master schedule too, so the
+    // weekly grid still shows who/when even after sign-off — just labeled.
+    const approvedApts = myAppointments.filter(a => a.status === 'APPROVED' || a.status === 'COMPLETED');
     approvedApts.forEach(apt => {
         const aptDate = new Date(apt.date);
         const dayIndex = weekDates.findIndex(wd => 
@@ -496,6 +564,7 @@ const saveConsultationHours = async () => {
               section: apt.studentSection || '',
               room: apt.reason,
               type: "appointment",
+              completed: apt.status === 'COMPLETED',
               dayOfWeek: dayIndex,
               startHour: sH,
               startMinute: sM,
@@ -723,10 +792,11 @@ const saveConsultationHours = async () => {
                           const textCol = isTeach ? C.teachText : isConsult ? C.consultText : C.apptText;
 
                           return (
-                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}`} onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box" }}>
+                            <div key={event.id} title={`${event.subject} · ${event.section} · ${event.room}${event.completed ? ' · Completed' : ''}`} onClick={(e) => e.stopPropagation()} style={{ position: "absolute", left: "3px", right: "3px", top: `${top}px`, height: `${height}px`, background: bg, borderLeft: `3px solid ${accent}`, borderRadius: "4px", padding: "4px 7px", overflow: "hidden", cursor: "pointer", zIndex: 1, boxSizing: "border-box", opacity: event.completed ? 0.7 : 1 }}>
                               <div style={{ fontSize: "11px", fontWeight: 700, color: textCol, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.subject}</div>
                               {height > 44 && (<div style={{ fontSize: "10px", color: textCol, opacity: 0.72, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{event.section}</div>)}
-                              {height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
+                              {event.completed && height > 44 && (<div style={{ fontSize: "9.5px", fontWeight: 700, color: textCol, opacity: 0.75, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px", fontStyle: "italic" }}>(Completed)</div>)}
+                              {!event.completed && height > 62 && (<div style={{ fontSize: "9.5px", color: textCol, opacity: 0.55, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: "1px" }}>{event.room}</div>)}
                             </div>
                           );
                         })}
@@ -819,6 +889,26 @@ const saveConsultationHours = async () => {
                   </HStack>
                 </HStack>
               </VStack>
+            </Box>
+          </Box>
+        )}
+
+        {completionModal && (
+          <Box
+            position="fixed" top="0" left="0" right="0" bottom="0" bg="rgba(0,0,0,0.45)"
+            display="flex" alignItems="center" justifyContent="center" zIndex={60}
+            onClick={() => setCompletionModal(null)}
+          >
+            <Box
+              bg={cardBg} borderRadius="lg" shadow="xl" p={8} w="90%" maxW="360px" textAlign="center"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
+              <Box fontSize="40px" mb={2}>✅</Box>
+              <Heading size="md" color={textColor} mb={2}>Consultation Completed</Heading>
+              <Text color={mutedText} fontSize="sm" mb={6}>
+                {completionModal.studentName}{completionModal.studentSection ? ` (${completionModal.studentSection})` : ''} has been signed off and added to your Consultation Log.
+              </Text>
+              <ChakraButton colorScheme="green" size="sm" onClick={() => setCompletionModal(null)}>Done</ChakraButton>
             </Box>
           </Box>
         )}
@@ -948,10 +1038,44 @@ const saveConsultationHours = async () => {
               ))}
             </Box>
 
-            {/* The official form layout */}
+            {/* The official form layout — always visible and editable here, not just
+                inside the print dialog. Rows pre-fill from completed consultations;
+                any cell can be typed into (e.g. to log a walk-in, or fix a typo)
+                before printing/exporting. Those edits only affect this view/export,
+                not the underlying appointment record. */}
             <Box bg="white" color="black" p={8} borderRadius="lg" borderWidth="1px" borderColor={borderColor} id="printable-log">
               <HStack justifyContent="flex-end" mb={4} className="no-print">
-                <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Download / Print Form</ChakraButton>
+                <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Print / Save as PDF</ChakraButton>
+                <ChakraButton size="sm" colorScheme="gray" onClick={() => {
+                  const rows = Array.from({ length: Math.max(15, consultLog.length) }).map((_, i) => {
+                    const entry = consultLog[i];
+                    const v = (field: FormRowField) => formCellValue(formEdits, i, field, entry);
+                    return `<tr>
+                      <td style="border:1px solid black;padding:4px;">${i + 1}. ${v('studentName')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('studentGender')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('studentSection')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('date')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('casePresented')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('interventionTaken')}</td>
+                      <td style="border:1px solid black;padding:4px;">${v('remarks')}</td>
+                    </tr>`;
+                  }).join('');
+                  const tableHtml = `<table style="width:100%; border-collapse:collapse; font-size:11px;">
+                    <thead><tr style="background:#4a5568;color:white;">
+                      <th style="border:1px solid black;padding:4px;">Name of Student/Advisee</th>
+                      <th style="border:1px solid black;padding:4px;">Gender</th>
+                      <th style="border:1px solid black;padding:4px;">Course and Year</th>
+                      <th style="border:1px solid black;padding:4px;">Date</th>
+                      <th style="border:1px solid black;padding:4px;">Case Presented</th>
+                      <th style="border:1px solid black;padding:4px;">Intervention/Action Taken</th>
+                      <th style="border:1px solid black;padding:4px;">Remarks</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                  </table>`;
+                  downloadFormAsWord(tableHtml, userName || 'Faculty');
+                }}>
+                  Download as Word
+                </ChakraButton>
               </HStack>
 
               <VStack spacing={0} mb={6}>
@@ -969,32 +1093,45 @@ const saveConsultationHours = async () => {
                 <Text>Consultation Schedule: __________</Text>
               </HStack>
 
-              <Table size="sm" variant="simple" border="1px solid black">
+              <Table id="consult-form-table" size="sm" variant="simple" border="1px solid black">
                 <Thead bg="gray.600">
                   <Tr>
                     <Th color="white" border="1px solid black">Name of Student/Advisee</Th>
+                    <Th color="white" border="1px solid black">Gender</Th>
                     <Th color="white" border="1px solid black">Course and Year</Th>
                     <Th color="white" border="1px solid black">Date</Th>
                     <Th color="white" border="1px solid black">Case Presented</Th>
                     <Th color="white" border="1px solid black">Intervention/Action Taken</Th>
                     <Th color="white" border="1px solid black">Remarks</Th>
-                    <Th color="white" border="1px solid black">Signature</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {Array.from({ length: Math.max(15, consultLog.length) }).map((_, i) => {
                     const entry = consultLog[i];
+                    const cellInput = (field: FormRowField, placeholder = '') => (
+                      <Input
+                        variant="unstyled"
+                        size="sm"
+                        fontSize="xs"
+                        value={formCellValue(formEdits, i, field, entry)}
+                        placeholder={placeholder}
+                        onChange={e => editFormCell(i, field, e.target.value)}
+                      />
+                    );
                     return (
                       <Tr key={i} height="34px">
-                        <Td border="1px solid black">{i + 1}. {entry?.studentName || ''}</Td>
-                        <Td border="1px solid black">{entry?.studentSection || ''}</Td>
-                        <Td border="1px solid black">{entry?.date || ''}</Td>
-                        <Td border="1px solid black">{entry?.casePresented || ''}</Td>
-                        <Td border="1px solid black">{entry?.interventionTaken || ''}</Td>
-                        <Td border="1px solid black">{entry?.remarks || ''}</Td>
-                        <Td border="1px solid black" fontSize="xs">
-                          {entry?.completedAt ? `Signed ${new Date(entry.completedAt).toLocaleDateString()}` : ''}
+                        <Td border="1px solid black" p={1}>
+                          <HStack spacing={1}>
+                            <Text fontSize="xs" whiteSpace="nowrap">{i + 1}.</Text>
+                            {cellInput('studentName')}
+                          </HStack>
                         </Td>
+                        <Td border="1px solid black" p={1}>{cellInput('studentGender')}</Td>
+                        <Td border="1px solid black" p={1}>{cellInput('studentSection')}</Td>
+                        <Td border="1px solid black" p={1}>{cellInput('date')}</Td>
+                        <Td border="1px solid black" p={1}>{cellInput('casePresented')}</Td>
+                        <Td border="1px solid black" p={1}>{cellInput('interventionTaken')}</Td>
+                        <Td border="1px solid black" p={1}>{cellInput('remarks')}</Td>
                       </Tr>
                     );
                   })}
