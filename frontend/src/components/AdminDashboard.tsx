@@ -549,6 +549,7 @@ export default function AdminDashboard() {
                 <Tr>
                   <Th color={mutedText}>Date Signed Off</Th>
                   <Th color={mutedText}>Student</Th>
+                  <Th color={mutedText}>Gender</Th>
                   <Th color={mutedText}>Faculty</Th>
                   <Th color={mutedText}>Case Presented</Th>
                   <Th color={mutedText}>Intervention Taken</Th>
@@ -557,12 +558,13 @@ export default function AdminDashboard() {
               </Thead>
               <Tbody>
                 {filteredRecords.length === 0 && (
-                  <Tr><Td colSpan={6}><Text color={mutedText} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
+                  <Tr><Td colSpan={7}><Text color={mutedText} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
                 )}
                 {filteredRecords.map(r => (
                   <Tr key={r._id}>
                     <Td color={textColor}>{r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}</Td>
                     <Td fontWeight="bold" color={textColor}>{r.studentName} ({r.studentSection})</Td>
+                    <Td color={textColor}>{r.studentGender || '—'}</Td>
                     <Td color={textColor}>{r.facultyId?.name || 'Unknown'}</Td>
                     <Td maxW="200px" color={textColor}>{r.casePresented}</Td>
                     <Td maxW="200px" color={textColor}>{r.interventionTaken}</Td>
