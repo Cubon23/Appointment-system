@@ -11,6 +11,17 @@ import {
 import { authFetch } from './authFetch';
 import NotificationBell from './NotificationBell';
 
+const PURPOSE_OPTIONS = [
+  'Capstone / Thesis Consultation',
+  'Programming / Code Debugging Assistance',
+  'Academic Advising / Curriculum & Subject Enlistment',
+  'OJT / Internship / Practicum Guidance',
+  'Grade Dispute / Clearance for "INC" (Incomplete)',
+  'Exam / Quiz Result Review',
+  'Submission of Delayed Work / Make-up Requirements',
+  'Others',
+];
+
 const getStatusColor = (status: string) => {
   switch (status) {
     case 'AVAILABLE':       return 'green';
@@ -63,6 +74,7 @@ export default function StudentDashboard() {
   const [aptDate, setAptDate] = useState('');
   const [aptTime, setAptTime] = useState('');
   const [aptReason, setAptReason] = useState('');
+  const [aptPurpose, setAptPurpose] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [myRequests, setMyRequests] = useState<any[]>([]);
@@ -195,6 +207,17 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (!aptReason.trim()) {
+      toast({
+        title: 'Purpose of Meeting required',
+        description: aptPurpose === 'Others'
+          ? 'Please specify your purpose in the text box.'
+          : 'Please select a purpose of meeting.',
+        status: 'warning',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     
     try {
@@ -221,7 +244,7 @@ export default function StudentDashboard() {
         isClosable: true
       });
       
-      setSelectedFaculty(''); setAptDate(''); setAptTime(''); setAptReason('');
+      setSelectedFaculty(''); setAptDate(''); setAptTime(''); setAptReason(''); setAptPurpose('');
       setActivePage('requests'); 
       fetchData(); 
       
@@ -411,7 +434,29 @@ export default function StudentDashboard() {
                       </FormControl>
                     </HStack>
                     <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
-                      <Textarea placeholder="e.g., Thesis consultation, Grade inquiry..." value={aptReason} onChange={(e) => setAptReason(e.target.value)} color={textColor} borderColor={borderColor} />
+                      <Select
+                        placeholder="Select a purpose"
+                        value={aptPurpose}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setAptPurpose(value);
+                          // For every option except "Others", the dropdown selection IS the reason
+                          // sent to the backend. "Others" clears it so the student must type one in.
+                          setAptReason(value === 'Others' ? '' : value);
+                        }}
+                        color={textColor} borderColor={borderColor}
+                      >
+                        {PURPOSE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </Select>
+                      {aptPurpose === 'Others' && (
+                        <Textarea
+                          mt={2}
+                          placeholder="Please specify your purpose..."
+                          value={aptReason}
+                          onChange={(e) => setAptReason(e.target.value)}
+                          color={textColor} borderColor={borderColor}
+                        />
+                      )}
                     </FormControl>
                     <ChakraButton type="submit" colorScheme="blue" w="100%" isLoading={isSubmitting} size="lg">Submit Appointment Request</ChakraButton>
                   </VStack>
