@@ -16,7 +16,7 @@ import {
   Link as ChakraLink,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure,
   Accordion, AccordionItem, AccordionButton, AccordionPanel, AccordionIcon,
-  createIcon,
+  createIcon, Checkbox,
 } from '@chakra-ui/react';
 
 // ───────────────────────── Palette (taken from the design mockup) ─────────────────────────
@@ -169,6 +169,8 @@ export default function LandingPage() {
 
   // Forgot Password modal state
   const { isOpen: isForgotOpen, onOpen: onForgotOpen, onClose: onForgotClose } = useDisclosure();
+  const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
 
@@ -206,6 +208,29 @@ export default function LandingPage() {
   };
 
   // --- THE TRUE LOGIN HANDLER ---
+  const [isResending, setIsResending] = useState(false);
+  const handleResendVerification = async () => {
+    if (!loginEmail.trim()) {
+      toast({ title: 'Enter your email first', description: 'Type your Gmail username in the email box above, then click Resend.', status: 'info', position: 'top' });
+      return;
+    }
+    setIsResending(true);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: `${loginEmail.trim()}@gmail.com`.toLowerCase() })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not send the email.');
+      toast({ title: 'Check your inbox', description: data.message, status: 'success', position: 'top', duration: 6000 });
+    } catch (error: any) {
+      toast({ title: 'Could not resend', description: error.message, status: 'error', position: 'top' });
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -297,6 +322,11 @@ export default function LandingPage() {
   const handleRegister = async (e: React.FormEvent) => {
   e.preventDefault();
 
+  if (!acceptedPrivacy) {
+    toast({ title: 'Privacy Policy', description: 'Please read and accept the Privacy Policy to create an account.', status: 'warning', position: 'top' });
+    return;
+  }
+
   if (regRole === 'STUDENT') {
     const schoolIdPattern = /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/;
     if (!schoolIdPattern.test(schoolId)) {
@@ -345,7 +375,8 @@ export default function LandingPage() {
           role: regRole,
           programPosition: finalProgramPosition,
           schoolId: regRole === 'STUDENT' ? schoolId : undefined,
-          facultyId: regRole === 'FACULTY' ? facultyId : undefined
+          facultyId: regRole === 'FACULTY' ? facultyId : undefined,
+          privacyAccepted: acceptedPrivacy
         })
       });
 
@@ -368,6 +399,7 @@ export default function LandingPage() {
       setSelYear('');
       setSelSection('');
       setFacultyPosition('');
+      setAcceptedPrivacy(false);
     }catch (error) {
       toast({ 
         title: 'Registration Failed', 
@@ -420,6 +452,11 @@ export default function LandingPage() {
                       <Flex justify="flex-end" mt={1}>
                         <ChakraLink fontSize="sm" color={linkColor} onClick={onForgotOpen}>
                           Forgot password?
+                        </ChakraLink>
+                      </Flex>
+                      <Flex justify="flex-end" mt={1}>
+                        <ChakraLink fontSize="sm" color={linkColor} onClick={isResending ? undefined : handleResendVerification}>
+                          {isResending ? 'Sending...' : "Didn't get the verification email? Resend"}
                         </ChakraLink>
                       </Flex>
                     </FormControl>
@@ -607,8 +644,19 @@ export default function LandingPage() {
     )}
   </FormControl>
 
-        {/* 5. SUBMIT BUTTON */}
-        <Button type="submit" colorScheme="green" size="lg" w="100%" mt={4} isLoading={isRegistering}>
+        {/* 5. PRIVACY POLICY CONSENT */}
+        <Checkbox isChecked={acceptedPrivacy} onChange={(e) => setAcceptedPrivacy(e.target.checked)} alignItems="flex-start" mt={2}>
+          <Text fontSize="sm">
+            I have read and agree to the{' '}
+            <ChakraLink color="blue.500" fontWeight="600" onClick={(e) => { e.preventDefault(); onPrivacyOpen(); }}>
+              Privacy Policy
+            </ChakraLink>
+            .
+          </Text>
+        </Checkbox>
+
+        {/* 6. SUBMIT BUTTON */}
+        <Button type="submit" colorScheme="green" size="lg" w="100%" mt={4} isLoading={isRegistering} isDisabled={!acceptedPrivacy}>
           {regRole === 'STUDENT' ? 'Create Account' : 'Request Faculty Access'}
         </Button>
         
@@ -858,6 +906,95 @@ export default function LandingPage() {
           <ModalCloseButton />
           <ModalBody p={0}>
             {authTabs}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* ================= PRIVACY POLICY MODAL ================= */}
+      <Modal isOpen={isPrivacyOpen} onClose={onPrivacyClose} size="xl" isCentered scrollBehavior="inside">
+        <ModalOverlay backdropFilter="blur(4px)" />
+        <ModalContent borderRadius="2xl" bg={modalBg}>
+          <ModalHeader color={headingColor}>Privacy Policy</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            <VStack align="stretch" spacing={4} fontSize="sm" color={bodyColor}>
+              <Text>
+                CCIS Sync is the consultation appointment system of the College of Computing and Information
+                Sciences, University of Antique. This policy explains what personal information we collect,
+                why, and who can see it, in line with the Data Privacy Act of 2012 (Republic Act No. 10173).
+              </Text>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>1. Information we collect</Text>
+                <VStack align="stretch" spacing={1} pl={3}>
+                  <Text>• Account details: full name, Gmail address, role (student or faculty), and your password (stored only in encrypted form).</Text>
+                  <Text>• School identity: School ID or Faculty ID, and your program, year, and section (students) or position (faculty).</Text>
+                  <Text>• Consultation records: appointment requests (date, time, purpose), and for completed consultations, the case presented, action taken, and remarks.</Text>
+                  <Text>• Faculty availability: class schedules, consultation hours, live status and location, and personal calendar notes.</Text>
+                  <Text>• In-app notifications about your appointments and account.</Text>
+                </VStack>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>2. Why we collect it</Text>
+                <Text>
+                  To verify your identity, let students book consultations with faculty, record consultations
+                  that took place, show faculty availability, send reminders and notices, and produce the
+                  consultation reports the college requires.
+                </Text>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>3. Who can see your information</Text>
+                <VStack align="stretch" spacing={1} pl={3}>
+                  <Text>• Students see their own requests and consultation records. They see a faculty member's consultation hours and class time blocks only; subject, room, and personal notes are never shown.</Text>
+                  <Text>• Faculty see the requests made to them and the consultation records they sign off. Their personal calendar notes are visible only to them.</Text>
+                  <Text>• The Admin verifies accounts and can view accounts and consultation records. The Dean can view consultation records and analytics for the college.</Text>
+                  <Text>• We do not sell your information or share it with outside parties.</Text>
+                </VStack>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>4. How we protect it</Text>
+                <Text>
+                  Passwords are encrypted, access is limited by role, and sign-in sessions expire automatically.
+                  No system is perfectly secure, so please keep your password private and log out on shared computers.
+                </Text>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>5. How long we keep it</Text>
+                <Text>
+                  We keep your information while your account is active and for as long as the college needs
+                  consultation records for its reports and school records.
+                </Text>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>6. Your rights</Text>
+                <Text>
+                  Under the Data Privacy Act you may ask to access your personal information, correct
+                  inaccurate information, object to its processing, and request its removal or blocking
+                  where the law allows. You may also file a complaint with the National Privacy Commission.
+                </Text>
+              </Box>
+
+              <Box>
+                <Text fontWeight="700" mb={1}>7. Contact</Text>
+                <Text>
+                  For privacy questions or requests, contact the CCIS office or the University's Data
+                  Protection Officer. [Contact details to be provided by the college.]
+                </Text>
+              </Box>
+
+              <Text fontSize="xs" color="gray.500">
+                By ticking the box on the registration form, you confirm that you have read this policy and
+                consent to the collection and use of your information as described.
+              </Text>
+            </VStack>
+            <Button mt={6} w="100%" colorScheme="blue" onClick={() => { setAcceptedPrivacy(true); onPrivacyClose(); }}>
+              I Understand and Agree
+            </Button>
           </ModalBody>
         </ModalContent>
       </Modal>

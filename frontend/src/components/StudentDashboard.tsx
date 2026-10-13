@@ -379,18 +379,18 @@ export default function StudentDashboard() {
                       )}
                     </FormControl>
                     <HStack w="100%" alignItems="flex-start">
-  <FormControl isRequired>
-    <FormLabel color={textColor}>Date</FormLabel>
-    <Input type="date" value={aptDate} onChange={(e) => setAptDate(e.target.value)} color={textColor} borderColor={borderColor}/>
-  </FormControl>
-  <FormControl isRequired>
-    <FormLabel color={textColor}>Time</FormLabel>
-    {/* Added min and max constraints directly to the HTML input */}
-    <Input type="time" value={aptTime} onChange={(e) => setAptTime(e.target.value)} min="07:30" max="16:00" color={textColor} borderColor={borderColor}/>
-    {/* Added helper text to guide the student */}
-    <Text fontSize="xs" color={mutedText} mt={1}>7:30 AM - 4:00 PM</Text>
-  </FormControl>
-</HStack>
+                      <FormControl isRequired>
+                        <FormLabel color={textColor}>Date</FormLabel>
+                        <Input type="date" value={aptDate} onChange={(e) => setAptDate(e.target.value)} color={textColor} borderColor={borderColor}/>
+                      </FormControl>
+                      <FormControl isRequired>
+                        <FormLabel color={textColor}>Time</FormLabel>
+                        {/* Added min and max constraints directly to the HTML input */}
+                        <Input type="time" value={aptTime} onChange={(e) => setAptTime(e.target.value)} min="07:30" max="16:00" color={textColor} borderColor={borderColor}/>
+                        {/* Added helper text to guide the student */}
+                        <Text fontSize="xs" color={mutedText} mt={1}>7:30 AM - 4:00 PM</Text>
+                      </FormControl>
+                    </HStack>
                     <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
                       <Textarea placeholder="e.g., Thesis consultation, Grade inquiry..." value={aptReason} onChange={(e) => setAptReason(e.target.value)} color={textColor} borderColor={borderColor} />
                     </FormControl>

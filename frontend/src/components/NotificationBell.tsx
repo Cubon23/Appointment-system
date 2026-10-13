@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Popover, PopoverTrigger, PopoverContent, PopoverHeader, PopoverBody, Portal,
-  Box, Flex, Text, useColorModeValue,
+  Box, Flex, HStack, Text, CloseButton, useColorModeValue,
 } from '@chakra-ui/react';
 import { EmailIcon } from '@chakra-ui/icons';
 import moment from 'moment';
@@ -68,6 +68,27 @@ export default function NotificationBell({ navText, navBg }: Props) {
     catch { load(); }
   };
 
+  // Delete one message. It disappears right away; the list is then refreshed so the next older one can fill the gap.
+  const deleteOne = async (n: AppNotification) => {
+    setItems(prev => prev.filter(i => i._id !== n._id));
+    if (!n.read) setUnread(u => Math.max(0, u - 1));
+    try {
+      const res = await authFetch(`${API}/api/faculty/notifications/${n._id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('delete failed');
+    } catch { /* the reload below puts the message back if the server did not delete it */ }
+    load();
+  };
+
+  // Delete every message in the mailbox (asks first, because it cannot be undone)
+  const clearAll = async () => {
+    if (items.length === 0) return;
+    if (!window.confirm('Delete all notifications? This cannot be undone.')) return;
+    setItems([]);
+    setUnread(0);
+    try { await authFetch(`${API}/api/faculty/notifications`, { method: 'DELETE' }); } catch { /* reload below shows the truth */ }
+    load();
+  };
+
   return (
     <Popover placement="right-start" isLazy onOpen={load}>
       <PopoverTrigger>
@@ -104,17 +125,30 @@ export default function NotificationBell({ navText, navBg }: Props) {
           <PopoverHeader borderColor={panelBorder}>
             <Flex justify="space-between" align="center">
               <Text fontWeight="700" fontSize="sm">Mail</Text>
-              <button
-                onClick={markAllRead}
-                disabled={unread === 0}
-                style={{
-                  background: 'none', border: 'none', fontSize: '12px', fontWeight: 600,
-                  color: unread === 0 ? mutedColor : '#2563eb',
-                  cursor: unread === 0 ? 'default' : 'pointer',
-                }}
-              >
-                Mark all as read
-              </button>
+              <HStack spacing={3}>
+                <button
+                  onClick={markAllRead}
+                  disabled={unread === 0}
+                  style={{
+                    background: 'none', border: 'none', fontSize: '12px', fontWeight: 600,
+                    color: unread === 0 ? mutedColor : '#2563eb',
+                    cursor: unread === 0 ? 'default' : 'pointer',
+                  }}
+                >
+                  Mark all as read
+                </button>
+                <button
+                  onClick={clearAll}
+                  disabled={items.length === 0}
+                  style={{
+                    background: 'none', border: 'none', fontSize: '12px', fontWeight: 600,
+                    color: items.length === 0 ? mutedColor : '#dc2626',
+                    cursor: items.length === 0 ? 'default' : 'pointer',
+                  }}
+                >
+                  Clear all
+                </button>
+              </HStack>
             </Flex>
           </PopoverHeader>
           <PopoverBody p={0} maxH="380px" overflowY="auto">
@@ -122,24 +156,33 @@ export default function NotificationBell({ navText, navBg }: Props) {
               <Text p={5} fontSize="sm" color={mutedColor} textAlign="center">No notifications yet.</Text>
             ) : (
               items.map(n => (
-                <Box
+                <Flex
                   key={n._id}
-                  as="button"
-                  onClick={() => markRead(n)}
-                  w="100%" textAlign="left" px={4} py={3}
+                  align="flex-start"
                   bg={n.read ? 'transparent' : unreadBg}
                   borderBottom="1px solid" borderColor={panelBorder}
-                  _hover={{ opacity: 0.85 }}
                 >
-                  <Flex gap={2} align="flex-start">
-                    <Box mt="6px" w="8px" h="8px" borderRadius="50%" flexShrink={0} bg={n.read ? 'transparent' : '#2563eb'} />
-                    <Box minW={0}>
-                      <Text fontSize="13px" fontWeight={n.read ? 500 : 700}>{n.title}</Text>
-                      <Text fontSize="12px" color={mutedColor} mt="2px">{n.message}</Text>
-                      <Text fontSize="11px" color={mutedColor} mt="4px">{moment(n.createdAt).fromNow()}</Text>
-                    </Box>
-                  </Flex>
-                </Box>
+                  <Box
+                    as="button"
+                    onClick={() => markRead(n)}
+                    flex="1" minW={0} textAlign="left" pl={4} py={3} pr={1}
+                    _hover={{ opacity: 0.85 }}
+                  >
+                    <Flex gap={2} align="flex-start">
+                      <Box mt="6px" w="8px" h="8px" borderRadius="50%" flexShrink={0} bg={n.read ? 'transparent' : '#2563eb'} />
+                      <Box minW={0}>
+                        <Text fontSize="13px" fontWeight={n.read ? 500 : 700}>{n.title}</Text>
+                        <Text fontSize="12px" color={mutedColor} mt="2px">{n.message}</Text>
+                        <Text fontSize="11px" color={mutedColor} mt="4px">{moment(n.createdAt).fromNow()}</Text>
+                      </Box>
+                    </Flex>
+                  </Box>
+                  <CloseButton
+                    size="sm" mt={2} mr={2} flexShrink={0} color={mutedColor}
+                    aria-label="Delete notification" title="Delete"
+                    onClick={() => deleteOne(n)}
+                  />
+                </Flex>
               ))
             )}
           </PopoverBody>

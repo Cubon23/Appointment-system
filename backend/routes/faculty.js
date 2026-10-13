@@ -59,7 +59,12 @@ const timeToMinutes = (time) => {
 // === 1. SECURE REGISTRATION ROUTE (With Bcrypt) ===
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, programPosition, schoolId, facultyId } = req.body;
+    const { name, email, password, role, programPosition, schoolId, facultyId, privacyAccepted } = req.body;
+
+    // Consent must be explicit, and is enforced here too — not just by the checkbox in the browser.
+    if (privacyAccepted !== true) {
+      return res.status(400).json({ error: 'You must accept the Privacy Policy to register.' });
+    }
 
     // Originally this required @ua.edu.ph specifically. The school never actually
     // provisioned working mailboxes on that domain, so verification emails sent to
@@ -115,6 +120,7 @@ router.post('/register', async (req, res) => {
       accountStatus,
       currentStatus: 'OUT_OF_OFFICE',
       isVerified: false,
+      privacyAcceptedAt: new Date(),
       verificationToken: hashedVerificationToken,
       verificationTokenExpires: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
     });
@@ -890,6 +896,43 @@ router.get('/verify-email/:token', async (req, res) => {
     res.json({ message: 'Email verified! You can now log in.' });
   } catch (error) {
     res.status(500).json({ error: 'Server error verifying email.' });
+  }
+});
+
+// =========================================================================
+// === RESEND VERIFICATION EMAIL ===
+// =========================================================================
+
+// For accounts that registered but never got a working link (lost email, SMTP not set up yet,
+// link expired). Always replies with the same neutral message whether or not the email belongs
+// to an account, so it can't be used to find out who is registered.
+const resendVerificationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many requests. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+router.post('/resend-verification', resendVerificationLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email: (email || '').toLowerCase() })
+      .select('+verificationToken +verificationTokenExpires');
+
+    if (user && !user.isVerified) {
+      const rawVerificationToken = crypto.randomBytes(32).toString('hex');
+      user.verificationToken = crypto.createHash('sha256').update(rawVerificationToken).digest('hex');
+      user.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours; the old link stops working
+      await user.save();
+
+      const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+      await sendVerificationEmail(user.email, `${frontendUrl}/verify-email/${rawVerificationToken}`);
+    }
+
+    res.json({ message: 'If that account exists and still needs verification, a new link has been sent.' });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not send the email. Please try again later.' });
   }
 });
 
