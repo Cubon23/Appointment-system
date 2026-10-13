@@ -66,9 +66,13 @@ facultyId: {
   room: { type: String }, 
   currentStatus: {
       type: String,
-      enum: ['AVAILABLE', 'IN_CLASS', 'IN_MEETING', 'ON_BREAK', 'OUT_OF_OFFICE', 'ON_LEAVE', 'ABSENT', 'NOT_UPDATED'], 
+      enum: ['AVAILABLE', 'IN_CLASS', 'IN_CONSULTATION', 'IN_MEETING', 'ON_BREAK', 'OUT_OF_OFFICE', 'ON_LEAVE', 'ABSENT', 'NOT_UPDATED'],
       default: 'OUT_OF_OFFICE'
   },
+  // True when faculty manually set their own status via the dashboard.
+  // The cron respects this until the NEXT scheduled block (class or consultation) starts,
+  // then clears it and resumes automatic status.
+  isManualOverride: { type: Boolean, default: false },
   currentLocation: { type: String }, 
   statusUpdatedAt: { type: Date, default: null },
   noticeMessage: { type: String, default: '' },

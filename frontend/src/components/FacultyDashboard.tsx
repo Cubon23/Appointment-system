@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatDate } from './dateUtils';
 import {
   Box, Heading, Table, Thead, Tbody, Tr, Th, Td, Badge, Text, 
   Button as ChakraButton, Select, Input, HStack, useToast, FormControl, 
@@ -926,7 +927,7 @@ const saveConsultationHours = async () => {
                 <VStack spacing={4} alignItems="flex-start">
                   <FormControl><FormLabel color={textColor}>Current Status</FormLabel>
                     <Select value={myStatus} onChange={(e) => setMyStatus(e.target.value)} color={textColor}>
-                      <option value="AVAILABLE">Available</option><option value="IN_CLASS">In Class</option>
+                      <option value="AVAILABLE">Available</option><option value="IN_CLASS">In Class</option><option value="IN_CONSULTATION">Consultation Hours</option>
                       <option value="IN_MEETING">In a Meeting</option><option value="ON_BREAK">On Break</option>
                       <option value="OUT_OF_OFFICE">Out of Office</option><option value="ON_LEAVE">On Leave</option><option value="ABSENT">Absent</option>
                     </Select>
@@ -990,7 +991,7 @@ const saveConsultationHours = async () => {
                   {myAppointments.map(apt => (
                     <Tr key={apt._id}>
                       <Td fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection})</Td>
-                      <Td color={textColor}>{apt.date} {formatTime(apt.time)}</Td>
+                      <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                       <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
                       <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'PENDING' ? 'yellow' : 'gray'}>{apt.status}</Badge></Td>
                       <Td>
@@ -1023,7 +1024,7 @@ const saveConsultationHours = async () => {
                 <Text color={mutedText}>No completed consultations to log.</Text>
               ) : myAppointments.filter(a => a.status === 'APPROVED').map(apt => (
                 <Box key={apt._id} borderWidth="1px" borderColor={borderColor} borderRadius="md" p={4} mb={3}>
-                  <Text fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection}) — {apt.date} {formatTime(apt.time)}</Text>
+                  <Text fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection}) — {formatDate(apt.date)} at {formatTime(apt.time)}</Text>
                   <Text fontSize="sm" color={mutedText} mb={3}>Student's stated reason: {apt.reason}</Text>
                   <VStack spacing={2} align="stretch">
                     <Textarea size="sm" placeholder="Case Presented" value={logForm[apt._id]?.casePresented || ''}

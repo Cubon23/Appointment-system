@@ -543,7 +543,10 @@ router.get('/appointments/me/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']
 
 // 13. PUT ROUTE: Save a Notice
 // 13b. PUT ROUTE: Faculty updates their own live status/location (used by FacultyDashboard's status page)
-const VALID_STATUSES = ['AVAILABLE', 'IN_CLASS', 'IN_MEETING', 'ON_BREAK', 'OUT_OF_OFFICE', 'ON_LEAVE', 'ABSENT', 'NOT_UPDATED'];
+// IN_CONSULTATION: auto-set by cron during consultation hour blocks;
+// faculty may also select it manually.
+const VALID_STATUSES = ['AVAILABLE', 'IN_CLASS', 'IN_CONSULTATION', 'IN_MEETING', 'ON_BREAK', 'OUT_OF_OFFICE', 'ON_LEAVE', 'ABSENT', 'NOT_UPDATED'];
+
 router.put('/update-status/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
   try {
     const { currentStatus, currentLocation } = req.body;
@@ -551,9 +554,16 @@ router.put('/update-status/:id', requireAuth(['FACULTY']), ownerOnly(r => r.para
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
+    // isManualOverride: true signals the cron to respect this status
+    // until the next scheduled block starts, then auto resumes.
     const updated = await User.findByIdAndUpdate(
       req.params.id,
-      { currentStatus, currentLocation, statusUpdatedAt: new Date() },
+      {
+        currentStatus,
+        currentLocation,
+        statusUpdatedAt:  new Date(),
+        isManualOverride: true,
+      },
       { new: true }
     );
 

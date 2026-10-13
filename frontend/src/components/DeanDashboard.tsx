@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatDate, formatDateTime } from './dateUtils';
 import {
   Box, Heading, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Text, Button as ChakraButton, HStack, Flex, VStack,
@@ -261,7 +262,7 @@ export default function DeanDashboard() {
             </HStack>
             <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
               <Heading size="md" color={C.text}>Reports & Analytics</Heading>
-              <Text fontSize="sm" color={C.textMid}>Generated {new Date().toLocaleString()}</Text>
+              <Text fontSize="sm" color={C.textMid}>Generated {formatDateTime(new Date())}</Text>
             </Box>
 
             <VStack align="stretch" spacing={8}>
@@ -296,7 +297,7 @@ export default function DeanDashboard() {
             </HStack>
             <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
               <Heading size="md" color={C.text}>Consultation Records</Heading>
-              <Text fontSize="sm" color={C.textMid}>Generated {new Date().toLocaleString()}</Text>
+              <Text fontSize="sm" color={C.textMid}>Generated {formatDateTime(new Date())}</Text>
             </Box>
 
             <TableContainer>
@@ -318,7 +319,7 @@ export default function DeanDashboard() {
                   )}
                   {filteredRecords.map((r: any) => (
                     <Tr key={r._id}>
-                      <Td color={C.text}>{r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}</Td>
+                      <Td color={C.text}>{r.completedAt ? formatDate(r.completedAt) : ''}</Td>
                       <Td fontWeight="bold" color={C.text}>{r.studentName} ({r.studentSection})</Td>
                       <Td color={C.text}>{r.studentGender || '—'}</Td>
                       <Td color={C.text}>{r.facultyId?.name || 'Unknown'}</Td>
@@ -347,7 +348,24 @@ export default function DeanDashboard() {
                     <Tr key={prof._id}>
                       <Td fontWeight="bold" color={C.text}>{prof.name}</Td>
                       <Td color={C.text}>{prof.programPosition}</Td>
-                      <Td><Badge colorScheme={prof.currentStatus === 'AVAILABLE' ? 'green' : 'gray'}>{prof.currentStatus}</Badge></Td>
+                      <Td>
+                        <Badge colorScheme={
+                          prof.currentStatus === 'AVAILABLE'       ? 'green'  :
+                          prof.currentStatus === 'IN_CLASS'        ? 'blue'   :
+                          prof.currentStatus === 'IN_CONSULTATION' ? 'teal'   :
+                          prof.currentStatus === 'IN_MEETING'      ? 'yellow' :
+                          prof.currentStatus === 'ON_BREAK'        ? 'orange' :
+                          prof.currentStatus === 'ON_LEAVE'        ? 'purple' :
+                          prof.currentStatus === 'ABSENT'          ? 'red'    : 'gray'
+                        }>
+                          {({
+                            AVAILABLE: 'Available', IN_CLASS: 'In Class',
+                            IN_CONSULTATION: 'Consultation Hours', IN_MEETING: 'In a Meeting',
+                            ON_BREAK: 'On Break', OUT_OF_OFFICE: 'Out of Office',
+                            ON_LEAVE: 'On Leave', ABSENT: 'Absent', NOT_UPDATED: 'No Update',
+                          } as Record<string,string>)[prof.currentStatus] ?? prof.currentStatus}
+                        </Badge>
+                      </Td>
                       <Td color={C.text}>{prof.currentLocation || prof.room || 'N/A'}</Td>
                     </Tr>
                   ))}

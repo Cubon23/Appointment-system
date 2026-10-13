@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { cohortConfig } from '../data/cohortConfig';
+import { formatDate, formatDateTime } from './dateUtils';
 import { 
   Box, Heading, Text, Button as ChakraButton, VStack, Input, FormControl, FormLabel, 
   useToast, Select, HStack, Flex, Divider, Table, Thead, Tbody, Tr, Th, Td, Badge, useColorMode, useColorModeValue,
@@ -409,7 +410,24 @@ export default function AdminDashboard() {
                     <Tr key={prof._id}>
                       <Td fontWeight="bold" color={textColor}>{prof.name}</Td>
                       <Td color={textColor}>{prof.programPosition}</Td>
-                      <Td><Badge colorScheme={prof.currentStatus === 'AVAILABLE' ? 'green' : 'gray'}>{prof.currentStatus}</Badge></Td>
+                      <Td>
+                        <Badge colorScheme={
+                          prof.currentStatus === 'AVAILABLE'       ? 'green'  :
+                          prof.currentStatus === 'IN_CLASS'        ? 'blue'   :
+                          prof.currentStatus === 'IN_CONSULTATION' ? 'teal'   :
+                          prof.currentStatus === 'IN_MEETING'      ? 'yellow' :
+                          prof.currentStatus === 'ON_BREAK'        ? 'orange' :
+                          prof.currentStatus === 'ON_LEAVE'        ? 'purple' :
+                          prof.currentStatus === 'ABSENT'          ? 'red'    : 'gray'
+                        }>
+                          {({
+                            AVAILABLE: 'Available', IN_CLASS: 'In Class',
+                            IN_CONSULTATION: 'Consultation Hours', IN_MEETING: 'In a Meeting',
+                            ON_BREAK: 'On Break', OUT_OF_OFFICE: 'Out of Office',
+                            ON_LEAVE: 'On Leave', ABSENT: 'Absent', NOT_UPDATED: 'No Update',
+                          } as Record<string,string>)[prof.currentStatus] ?? prof.currentStatus}
+                        </Badge>
+                      </Td>
                     </Tr>
                   ))}
                   
@@ -504,7 +522,7 @@ export default function AdminDashboard() {
             </HStack>
             <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
               <Heading size="md" color={textColor}>Reports & Analytics</Heading>
-              <Text fontSize="sm" color={mutedText}>Generated {new Date().toLocaleString()}</Text>
+              <Text fontSize="sm" color={mutedText}>Generated {formatDateTime(new Date())}</Text>
             </Box>
 
             <VStack align="stretch" spacing={8}>
@@ -541,7 +559,7 @@ export default function AdminDashboard() {
             </HStack>
             <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
               <Heading size="md" color={textColor}>Consultation Records</Heading>
-              <Text fontSize="sm" color={mutedText}>Generated {new Date().toLocaleString()}</Text>
+              <Text fontSize="sm" color={mutedText}>Generated {formatDateTime(new Date())}</Text>
             </Box>
 
             <Table variant="simple" size="sm">
@@ -562,7 +580,7 @@ export default function AdminDashboard() {
                 )}
                 {filteredRecords.map(r => (
                   <Tr key={r._id}>
-                    <Td color={textColor}>{r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}</Td>
+                    <Td color={textColor}>{r.completedAt ? formatDate(r.completedAt) : ''}</Td>
                     <Td fontWeight="bold" color={textColor}>{r.studentName} ({r.studentSection})</Td>
                     <Td color={textColor}>{r.studentGender || '—'}</Td>
                     <Td color={textColor}>{r.facultyId?.name || 'Unknown'}</Td>
@@ -590,7 +608,7 @@ export default function AdminDashboard() {
                       )}
                     </Td>
                     <Td color={textColor}>{apt.facultyId ? apt.facultyId.name : 'Unknown'}</Td>
-                    <Td color={textColor}>{apt.date} {formatTime(apt.time)}</Td>
+                    <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                     <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
                     <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'COMPLETED' ? 'blue' : 'yellow'}>{apt.status}</Badge></Td>
                     <Td>

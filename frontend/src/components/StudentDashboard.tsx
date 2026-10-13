@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cohortConfig } from '../data/cohortConfig';
+import { formatDate, formatDateTime } from './dateUtils';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, Select, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
@@ -12,11 +13,31 @@ import NotificationBell from './NotificationBell';
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'AVAILABLE': return 'green'; case 'IN_CLASS': return 'blue';
-    case 'IN_MEETING': return 'yellow'; case 'ON_BREAK': return 'orange';
-    case 'OUT_OF_OFFICE': return 'gray'; case 'ON_LEAVE': return 'purple'; case 'ABSENT': return 'red';
-    default: return 'gray';
+    case 'AVAILABLE':       return 'green';
+    case 'IN_CLASS':        return 'blue';
+    case 'IN_CONSULTATION': return 'teal';
+    case 'IN_MEETING':      return 'yellow';
+    case 'ON_BREAK':        return 'orange';
+    case 'OUT_OF_OFFICE':   return 'gray';
+    case 'ON_LEAVE':        return 'purple';
+    case 'ABSENT':          return 'red';
+    default:                return 'gray';
   }
+};
+
+const getStatusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    AVAILABLE:       'Available',
+    IN_CLASS:        'In Class',
+    IN_CONSULTATION: 'Consultation Hours',
+    IN_MEETING:      'In a Meeting',
+    ON_BREAK:        'On Break',
+    OUT_OF_OFFICE:   'Out of Office',
+    ON_LEAVE:        'On Leave',
+    ABSENT:          'Absent',
+    NOT_UPDATED:     'No Update',
+  };
+  return labels[status] ?? status;
 };
 
 // Matches the dayOfWeek convention used on the faculty side (1 = Mon ... 6 = Sat)
@@ -286,7 +307,7 @@ export default function StudentDashboard() {
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
               <TableContainer>
                 <Table variant="simple" size="md">
-                  <Thead><Tr><Th color={mutedText}>Faculty Name</Th><Th color={mutedText}>Live Status & Location</Th><Th color={mutedText}>Announcements / Notices</Th></Tr></Thead>
+                  <Thead><Tr><Th color={mutedText}>Faculty Name</Th><Th color={mutedText}>Live Status</Th><Th color={mutedText}>Announcements / Notices</Th></Tr></Thead>
                   <Tbody>
                     {faculty.map((prof) => {
                       const isMissing = prof.currentStatus === 'ABSENT' || prof.currentStatus === 'ON_LEAVE';
@@ -298,10 +319,9 @@ export default function StudentDashboard() {
                           </Td>
                           <Td>
                             <HStack>
-                              <Badge colorScheme={getStatusColor(prof.currentStatus)} px={3} py={1} borderRadius="full">{prof.currentStatus.replace(/_/g, ' ')}</Badge>
-                              <Text color={isMissing ? 'red.500' : textColor} fontWeight={isMissing ? 'bold' : 'normal'} fontSize="sm">
-                                {isMissing ? 'Not on Campus' : (prof.currentLocation || prof.room || 'N/A')}
-                              </Text>
+                              <Badge colorScheme={getStatusColor(prof.currentStatus)} px={3} py={1} borderRadius="full">
+                                {getStatusLabel(prof.currentStatus)}
+                              </Badge>
                             </HStack>
                           </Td>
                           <Td maxW="300px">
@@ -446,7 +466,7 @@ export default function StudentDashboard() {
                     {myRequests.map(apt => (
                       <Tr key={apt._id}>
                         <Td fontWeight="bold" color={textColor}>{apt.facultyId ? apt.facultyId.name : 'Unknown'}</Td>
-                        <Td color={textColor}>{apt.date} {formatTime(apt.time)}</Td>
+                        <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                         <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
                         <Td>
                           <Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'PENDING' ? 'yellow' : 'gray'} px={2} py={1} borderRadius="md">{apt.status}</Badge>
@@ -487,7 +507,7 @@ export default function StudentDashboard() {
               </Box>
               <Box>
                 <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Date</Text>
-                <Text color={textColor}>{summaryApt?.date} {summaryApt ? formatTime(summaryApt.time) : ''}</Text>
+                <Text color={textColor}>{formatDate(summaryApt?.date)} {summaryApt ? `at ${formatTime(summaryApt.time)}` : ''}</Text>
               </Box>
               <Box>
                 <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Case Presented</Text>
@@ -503,7 +523,7 @@ export default function StudentDashboard() {
               </Box>
               <Box>
                 <Text fontSize="xs" fontWeight="700" color={mutedText} textTransform="uppercase">Signed Off</Text>
-                <Text color={textColor}>{summaryApt?.completedAt ? new Date(summaryApt.completedAt).toLocaleString() : '—'}</Text>
+                <Text color={textColor}>{formatDateTime(summaryApt?.completedAt)}</Text>
               </Box>
             </VStack>
           </ModalBody>
