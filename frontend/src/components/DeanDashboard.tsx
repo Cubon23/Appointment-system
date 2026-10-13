@@ -305,6 +305,7 @@ export default function DeanDashboard() {
                   <Tr>
                     <Th color={C.textMid}>Date Signed Off</Th>
                     <Th color={C.textMid}>Student</Th>
+                    <Th color={C.textMid}>Gender</Th>
                     <Th color={C.textMid}>Faculty</Th>
                     <Th color={C.textMid}>Case Presented</Th>
                     <Th color={C.textMid}>Intervention Taken</Th>
@@ -313,12 +314,13 @@ export default function DeanDashboard() {
                 </Thead>
                 <Tbody>
                   {filteredRecords.length === 0 && (
-                    <Tr><Td colSpan={6}><Text color={C.textMid} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
+                    <Tr><Td colSpan={7}><Text color={C.textMid} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
                   )}
                   {filteredRecords.map((r: any) => (
                     <Tr key={r._id}>
                       <Td color={C.text}>{r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}</Td>
                       <Td fontWeight="bold" color={C.text}>{r.studentName} ({r.studentSection})</Td>
+                      <Td color={C.text}>{r.studentGender || '—'}</Td>
                       <Td color={C.text}>{r.facultyId?.name || 'Unknown'}</Td>
                       <Td maxW="200px" color={C.text}>{r.casePresented}</Td>
                       <Td maxW="200px" color={C.text}>{r.interventionTaken}</Td>

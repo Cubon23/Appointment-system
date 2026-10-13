@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { cohortConfig } from '../data/cohortConfig';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
-  Badge, Input, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
+  Badge, Input, Select, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
   useColorMode, useColorModeValue,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure
 } from '@chakra-ui/react';
@@ -32,6 +32,7 @@ export default function StudentDashboard() {
   const [activePage, setActivePage] = useState('home');
   const [faculty, setFaculty] = useState<any[]>([]);
   const [studentSection] = useState(localStorage.getItem('programPosition') || '');
+  const [studentGender, setStudentGender] = useState(localStorage.getItem('studentGender') || '');
 
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [facultySearch, setFacultySearch] = useState('');
@@ -178,7 +179,7 @@ export default function StudentDashboard() {
     try {
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
+        body: JSON.stringify({ studentName: userName, studentSection, studentGender, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
       });
 
       // 1. We must parse the JSON to read the custom error message from the backend
@@ -328,6 +329,19 @@ export default function StudentDashboard() {
                       <FormLabel color={textColor}>Your Section</FormLabel>
                       <Input value={studentSection} isReadOnly color={textColor} borderColor={borderColor} bg={useColorModeValue('gray.50', 'whiteAlpha.100')} cursor="not-allowed" />
                       <Text fontSize="xs" color={mutedText} mt={1}>From your account registration. Contact an admin if this is wrong.</Text>
+                    </FormControl>
+                    <FormControl isRequired>
+                      <FormLabel color={textColor}>Gender</FormLabel>
+                      <Select
+                        value={studentGender}
+                        onChange={(e) => { setStudentGender(e.target.value); localStorage.setItem('studentGender', e.target.value); }}
+                        placeholder="Select gender"
+                        color={textColor}
+                        borderColor={borderColor}
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </Select>
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel color={textColor}>Select Professor</FormLabel>
