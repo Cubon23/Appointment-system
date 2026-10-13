@@ -21,6 +21,7 @@ const UserSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   verificationToken: { type: String, select: false },
   verificationTokenExpires: { type: Date, select: false },
+  privacyAcceptedAt: { type: Date, default: null }, // when they agreed to the Privacy Policy at registration
 
   // Forgot-password flow
   resetPasswordToken: { type: String, select: false },
