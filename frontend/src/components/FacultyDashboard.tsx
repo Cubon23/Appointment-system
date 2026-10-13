@@ -155,6 +155,20 @@ export default function FacultyDashboard() {
   const [isSavingNote, setIsSavingNote] = useState(false);
 
   const [consultBlocks, setConsultBlocks] = useState<{dayOfWeek: number, startTime: string, endTime: string}[]>([]);
+  // Load the faculty's already-saved consultation-hour blocks into the editor once,
+  // so "Fixed Consultation Hours" doesn't start blank (0.0/4.0) when 4 hours are
+  // already committed and visible on the Master Schedule.
+  const hasSyncedConsultBlocksRef = useRef(false);
+  useEffect(() => {
+    if (myConsultHours.length > 0 && !hasSyncedConsultBlocksRef.current) {
+      setConsultBlocks(myConsultHours.map((b: any) => ({
+        dayOfWeek: b.dayOfWeek,
+        startTime: b.startTime,
+        endTime: b.endTime,
+      })));
+      hasSyncedConsultBlocksRef.current = true;
+    }
+  }, [myConsultHours]);
 
   const totalMinutes = consultBlocks.reduce((sum, b) => {
     if (!b.startTime || !b.endTime) return sum;

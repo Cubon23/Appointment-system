@@ -310,7 +310,6 @@ export default function StudentDashboard() {
                   <Thead><Tr><Th color={mutedText}>Faculty Name</Th><Th color={mutedText}>Live Status</Th><Th color={mutedText}>Announcements / Notices</Th></Tr></Thead>
                   <Tbody>
                     {faculty.map((prof) => {
-                      const isMissing = prof.currentStatus === 'ABSENT' || prof.currentStatus === 'ON_LEAVE';
                       return (
                         <Tr key={prof._id}>
                           <Td fontWeight="bold" color={textColor}>
