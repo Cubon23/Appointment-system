@@ -873,6 +873,23 @@ router.patch('/notifications/read-all', requireAuth(ALL_ROLES), async (req, res)
   }
 });
 
+// ======================================================================
+// MAILBOX: delete notifications (the bell's X and "Clear all" buttons)
+// ======================================================================
+router.delete('/notifications/:id', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    await Notification.deleteOne({ _id: req.params.id, userId: req.user.userId });
+    res.json({ message: 'Notification deleted.' });
+  } catch (error) { res.status(500).json({ error: 'Server error deleting notification.' }); }
+});
+
+router.delete('/notifications', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    await Notification.deleteMany({ userId: req.user.userId });
+    res.json({ message: 'All notifications deleted.' });
+  } catch (error) { res.status(500).json({ error: 'Server error clearing notifications.' }); }
+});
+
 router.patch('/notifications/:id/read', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     await Notification.updateOne({ _id: req.params.id, userId: req.user.userId }, { $set: { read: true } });

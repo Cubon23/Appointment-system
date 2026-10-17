@@ -15,7 +15,9 @@ interface ActiveBroadcast {
 // Pinned Dean's announcement. Rendered as the first child of the dashboard's
 // <main>; sticks to the top while the page content scrolls. Not dismissible:
 // it disappears only when it expires or the Dean ends it.
-export default function BroadcastBanner() {
+// `userRole` is passed by the Student/Faculty dashboards; the server already
+// filters by the logged-in role, so it is accepted but not needed here.
+export default function BroadcastBanner(_props: { userRole?: string }) {
   const [items, setItems] = useState<ActiveBroadcast[]>([]);
 
   useEffect(() => {
