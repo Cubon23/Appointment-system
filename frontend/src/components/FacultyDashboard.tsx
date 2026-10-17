@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate } from './dateUtils';
+import BroadcastBanner from './BroadcastBanner';
 import {
   Box, Heading, Table, Thead, Tbody, Tr, Th, Td, Badge, Text, 
   Button as ChakraButton, Select, Input, HStack, useToast, FormControl, 
@@ -684,6 +685,7 @@ const saveConsultationHours = async () => {
           MAIN CONTENT
       ═══════════════════════════════════════════════════════════════════ */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <BroadcastBanner userRole="FACULTY" />
 
         {/* ───────────────────────────────────────────────────────────────
             PAGE: MASTER SCHEDULE

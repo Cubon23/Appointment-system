@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cohortConfig } from '../data/cohortConfig';
 import { formatDate, formatDateTime } from './dateUtils';
+import BroadcastBanner from './BroadcastBanner';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, Select, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
@@ -319,6 +320,7 @@ export default function StudentDashboard() {
 
       {/* ── Main Content ── */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <BroadcastBanner userRole="STUDENT" />
         <div style={{ padding: "32px", overflowY: "auto", height: "100%" }}>
           <h1 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "20px", color: textColor }}>
             {activePage === 'home' && "Live Faculty Status"}

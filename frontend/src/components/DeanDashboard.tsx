@@ -8,7 +8,9 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import NotificationBell from './NotificationBell';
-import SimpleBarChart from './SimpleBarChart';
+import AnalyticsReport from './AnalyticsReport';
+import DeanBroadcastPanel from './DeanBroadcastPanel';
+import AttendanceCorrelationPanel from './AttendanceCorrelationPanel';
 
 // === Helper function for time formatting ===
 export const formatTime = (timeStr: string) => {
@@ -27,7 +29,7 @@ export default function DeanDashboard() {
   const userName = localStorage.getItem('userName');
 
   // Unified Page State
-  const [activePage, setActivePage] = useState<'analytics' | 'roster' | 'reports' | 'records'>('analytics');
+  const [activePage, setActivePage] = useState<'analytics' | 'attendance' | 'broadcast' | 'roster' | 'reports' | 'records'>('analytics');
   
   // Custom Navy Sidebar Color palette
   const dk = colorMode === 'dark';
@@ -132,6 +134,28 @@ export default function DeanDashboard() {
         >
           Consultation Records
         </button>
+        <button
+          onClick={() => setActivePage('attendance')}
+          style={{
+            background: activePage === 'attendance' ? C.navBg : 'transparent',
+            color: activePage === 'attendance' ? C.navActive : C.navText,
+            border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+            fontWeight: activePage === 'attendance' ? 600 : 400
+          }}
+        >
+          Attendance Analytics
+        </button>
+        <button
+          onClick={() => setActivePage('broadcast')}
+          style={{
+            background: activePage === 'broadcast' ? C.navBg : 'transparent',
+            color: activePage === 'broadcast' ? C.navActive : C.navText,
+            border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+            fontWeight: activePage === 'broadcast' ? 600 : 400
+          }}
+        >
+          Executive Broadcast
+        </button>
       </VStack>
       <VStack spacing={4} mt="auto">
         <ChakraButton size="sm" variant="outline" color={C.navText} borderColor="gray.600" w="100%" onClick={toggleColorMode}>{colorMode === 'light' ? 'Dark Mode' : 'Light Mode'}</ChakraButton>
@@ -143,62 +167,12 @@ export default function DeanDashboard() {
   const compliancePercentage = useMemo(() => {
     const total = facultyRoster.length;
     if (total === 0) return 0;
-    const missing = facultyRoster.filter(f => f.currentStatus === 'NOT_UPDATED').length;
+    const missing = facultyRoster.filter(f => f.statusUpdatedToday === false || f.currentStatus === 'NOT_UPDATED').length;
     return Math.round(((total - missing) / total) * 100);
   }, [facultyRoster]);
 
-  // === Reports & Analytics / Consultation Records ===
-  // Same computation as AdminDashboard.tsx, kept in sync by hand since the
-  // two dashboards have very different layouts and don't share a page
-  // component. If this logic changes, update both files.
-  const statusCounts = useMemo(() => {
-    const order = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'];
-    return order.map(status => ({
-      label: status.charAt(0) + status.slice(1).toLowerCase(),
-      value: appointments.filter(a => a.status === status).length,
-    }));
-  }, [appointments]);
-
-  const weeklyTrend = useMemo(() => {
-    const weeks: { label: string; start: Date; value: number }[] = [];
-    const now = new Date();
-    const startOfWeek = (d: Date) => {
-      const copy = new Date(d);
-      const day = copy.getDay();
-      const diff = (day === 0 ? -6 : 1) - day;
-      copy.setDate(copy.getDate() + diff);
-      copy.setHours(0, 0, 0, 0);
-      return copy;
-    };
-    const thisWeekStart = startOfWeek(now);
-    for (let i = 7; i >= 0; i--) {
-      const start = new Date(thisWeekStart);
-      start.setDate(start.getDate() - i * 7);
-      weeks.push({ label: `${start.getMonth() + 1}/${start.getDate()}`, start, value: 0 });
-    }
-    appointments.forEach(a => {
-      if (!a.date) return;
-      const d = new Date(a.date);
-      if (isNaN(d.getTime())) return;
-      const ws = startOfWeek(d).getTime();
-      const match = weeks.find(w => w.start.getTime() === ws);
-      if (match) match.value += 1;
-    });
-    return weeks.map(({ label, value }) => ({ label, value }));
-  }, [appointments]);
-
-  const facultyUtilization = useMemo(() => {
-    const counts = new Map<string, number>();
-    appointments.forEach(a => {
-      if (a.status !== 'COMPLETED') return;
-      const name = a.facultyId?.name || 'Unknown';
-      counts.set(name, (counts.get(name) || 0) + 1);
-    });
-    return Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([label, value]) => ({ label, value }));
-  }, [appointments]);
+  // Reports & Analytics charts now come from the backend (GET /api/analytics/overview),
+  // rendered by <AnalyticsReport />. Consultation Records below still uses `appointments`.
 
   const consultationRecords = useMemo(() => {
     return appointments
@@ -257,7 +231,7 @@ export default function DeanDashboard() {
         {activePage === 'reports' && (
           <Box id="print-area" bg={C.surface} p={6} borderRadius="lg" borderWidth="1px" borderColor={C.border} shadow="sm">
             <HStack justifyContent="space-between" mb={6} className="no-print">
-              <Text color={C.textMid} fontSize="sm">Computed from all {appointments.length} appointments on record.</Text>
+              <Text color={C.textMid} fontSize="sm">Calculated live by the database.</Text>
               <ChakraButton size="sm" colorScheme="blue" onClick={() => window.print()}>Print Report</ChakraButton>
             </HStack>
             <Box sx={{ display: 'none', '@media print': { display: 'block' } }} mb={4}>
@@ -265,22 +239,7 @@ export default function DeanDashboard() {
               <Text fontSize="sm" color={C.textMid}>Generated {formatDateTime(new Date())}</Text>
             </Box>
 
-            <VStack align="stretch" spacing={8}>
-              <Box>
-                <Heading size="sm" color={C.textMid} textTransform="uppercase" mb={4}>Appointments by Status</Heading>
-                <SimpleBarChart data={statusCounts} color="#2563eb" />
-              </Box>
-              <Box>
-                <Heading size="sm" color={C.textMid} textTransform="uppercase" mb={4}>Appointments per Week (last 8 weeks)</Heading>
-                <SimpleBarChart data={weeklyTrend} color="#16a34a" />
-              </Box>
-              <Box>
-                <Heading size="sm" color={C.textMid} textTransform="uppercase" mb={4}>Faculty Utilization (completed consultations)</Heading>
-                {facultyUtilization.length > 0
-                  ? <SimpleBarChart data={facultyUtilization} color="#f08a3c" />
-                  : <Text color={C.textMid} fontSize="sm">No completed consultations yet.</Text>}
-              </Box>
-            </VStack>
+            <AnalyticsReport />
           </Box>
         )}
 
@@ -373,6 +332,14 @@ export default function DeanDashboard() {
               </Table>
             </TableContainer>
           </Box>
+        )}
+
+        {activePage === 'attendance' && (
+          <AttendanceCorrelationPanel C={C} />
+        )}
+
+        {activePage === 'broadcast' && (
+          <DeanBroadcastPanel C={C} />
         )}
       </Box>
     </Flex>

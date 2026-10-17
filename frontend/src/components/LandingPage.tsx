@@ -1030,7 +1030,6 @@ export default function LandingPage() {
           </ModalBody>
         </ModalContent>
       </Modal>
-
     </Box>
   );
 }

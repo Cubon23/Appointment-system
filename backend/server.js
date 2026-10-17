@@ -37,6 +37,9 @@ app.use('/api/faculty', facultyRoutes);
 const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes); // This adds the /api/auth prefix
 
+const analyticsRoutes = require('./routes/analytics');
+app.use('/api/analytics', analyticsRoutes); // Reports & Analytics (Admin/Dean only)
+
 // Connect to MongoDB
 mongoose.connect(process.env.MONGO_URI)
   .then(() => {

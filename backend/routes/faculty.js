@@ -37,6 +37,8 @@ const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
+const Broadcast = require('../models/Broadcast');
+const { computeAttendanceStats, monthRange, phToday, phParts } = require('../utils/attendanceStats');
 
 // ---- Access control helpers ------------------------------------------------
 const ALL_ROLES = ['STUDENT', 'FACULTY', 'DEAN', 'ADMIN'];
@@ -1008,6 +1010,127 @@ router.post('/reset-password/:token', async (req, res) => {
     res.json({ message: 'Password updated. You can now log in with your new password.' });
   } catch (error) {
     res.status(500).json({ error: 'Server error resetting password.' });
+  }
+});
+
+// ======================================================================
+// DEAN: EXECUTIVE BROADCAST
+// A pinned message pushed to every Student/Faculty dashboard banner
+// and their notification mailbox. Only DEAN can create/end them.
+// ======================================================================
+
+const broadcastStatus = (b, now = new Date()) =>
+  b.endedAt ? 'ENDED' : (new Date(b.expiresAt) <= now ? 'EXPIRED' : 'ACTIVE');
+
+// Dean sends a broadcast
+router.post('/broadcasts', requireAuth(['DEAN']), async (req, res) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const message = String(req.body.message || '').trim();
+    const audience = req.body.audience || 'ALL';
+    const priority = req.body.priority || 'URGENT';
+    const minutes = Number(req.body.durationMinutes);
+
+    if (!title || title.length > 120) return res.status(400).json({ error: 'Title is required (max 120 characters).' });
+    if (!message || message.length > 1000) return res.status(400).json({ error: 'Message is required (max 1000 characters).' });
+    if (!['ALL', 'STUDENT', 'FACULTY'].includes(audience)) return res.status(400).json({ error: 'Invalid audience.' });
+    if (!['URGENT', 'NOTICE'].includes(priority)) return res.status(400).json({ error: 'Invalid priority.' });
+    if (!Number.isFinite(minutes) || minutes < 15 || minutes > 20160) {
+      return res.status(400).json({ error: 'Duration must be between 15 minutes and 14 days.' });
+    }
+
+    const dean = await User.findById(req.user.userId).select('name');
+    const broadcast = await Broadcast.create({
+      title, message, audience, priority,
+      expiresAt: new Date(Date.now() + minutes * 60 * 1000),
+      createdBy: req.user.userId,
+      createdByName: dean ? dean.name : 'Office of the Dean',
+    });
+
+    const roles = audience === 'ALL' ? ['STUDENT', 'FACULTY'] : [audience];
+    const recipients = await User.countDocuments({ role: { $in: roles }, accountStatus: 'ACTIVE' });
+    for (const role of roles) {
+      await notifyRole(role, { type: 'DEAN_BROADCAST', title: `Dean's Office: ${title}`, message });
+    }
+
+    res.status(201).json({ broadcast, recipients });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Server error sending broadcast.' });
+  }
+});
+
+// Active broadcasts for the current user's role (Student/Faculty banner feed)
+router.get('/broadcasts/active', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    const now = new Date();
+    const list = await Broadcast.find({
+      audience: { $in: ['ALL', req.user.role] },
+      endedAt: null,
+      expiresAt: { $gt: now },
+    }).sort({ createdAt: -1 });
+    const out = list
+      .map(b => ({
+        _id: b._id, title: b.title, message: b.message, priority: b.priority,
+        createdByName: b.createdByName, createdAt: b.createdAt, expiresAt: b.expiresAt,
+      }))
+      .sort((a, b) => (a.priority === b.priority ? 0 : a.priority === 'URGENT' ? -1 : 1));
+    res.json(out);
+  } catch (error) { res.status(500).json({ error: 'Server error fetching broadcasts.' }); }
+});
+
+// Dean: history of all broadcasts
+router.get('/broadcasts', requireAuth(['DEAN']), async (req, res) => {
+  try {
+    const now = new Date();
+    const list = await Broadcast.find({}).sort({ createdAt: -1 }).limit(50);
+    res.json(list.map(b => ({ ...(b.toObject ? b.toObject() : b), status: broadcastStatus(b, now) })));
+  } catch (error) { res.status(500).json({ error: 'Server error fetching broadcast history.' }); }
+});
+
+// Dean: end a broadcast early
+router.patch('/broadcasts/:id/end', requireAuth(['DEAN']), async (req, res) => {
+  try {
+    const b = await Broadcast.findById(req.params.id);
+    if (!b) return res.status(404).json({ error: 'Broadcast not found.' });
+    if (!b.endedAt) { b.endedAt = new Date(); await b.save(); }
+    res.json({ message: 'Broadcast ended.' });
+  } catch (error) { res.status(500).json({ error: 'Server error ending broadcast.' }); }
+});
+
+// ======================================================================
+// DEAN/ADMIN: ATTENDANCE vs CONSULTATION CORRELATION
+// ======================================================================
+router.get('/analytics/attendance-consultation', requireAuth(STAFF), async (req, res) => {
+  try {
+    const today = phToday();
+    const month = req.query.month || today.slice(0, 7);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return res.status(400).json({ error: 'month must be YYYY-MM.' });
+    const { start, end } = monthRange(month);
+
+    const faculty = await User.find({ role: 'FACULTY', accountStatus: 'ACTIVE' }).select('name createdAt');
+    const ids = faculty.map(f => f._id);
+    const [classes, hours, history, completed, first] = await Promise.all([
+      Schedule.find({ facultyId: { $in: ids } }).select('facultyId dayOfWeek startTime'),
+      ConsultationHours.find({ facultyId: { $in: ids } }).select('facultyId dayOfWeek startTime'),
+      StatusHistory.find({
+        facultyId: { $in: ids },
+        timestamp: { $gte: new Date(new Date(start + 'T00:00:00Z').getTime() - 8 * 3600 * 1000) },
+      }).select('facultyId status timestamp'),
+      Appointment.find({ facultyId: { $in: ids }, status: 'COMPLETED' }).select('facultyId completedAt date'),
+      StatusHistory.find({}).sort({ timestamp: 1 }).limit(1),
+    ]);
+
+    const trackingSince = first.length ? phParts(first[0].timestamp).date : null;
+    const result = computeAttendanceStats({
+      faculty, blocks: [...classes, ...hours], history, completed,
+      start, end, trackingSince, today,
+    });
+
+    res.json({ month, period: { start, end }, trackingSince, ...result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Server error computing attendance analytics.' });
   }
 });
 
