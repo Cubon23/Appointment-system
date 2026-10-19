@@ -18,16 +18,22 @@ function phNow() {
 //
 // Every minute the job checks each faculty member's situation:
 //
-//  1. OFF-HOURS (before 6 AM or after 8 PM) or LUNCH (11 AM–1 PM):
+//  1. OFF-HOURS (before 6 AM or after 8 PM):
 //     → All faculty auto-set to OUT_OF_OFFICE unless isManualOverride is true
 //       (faculty on approved leave shouldn't be overridden).
+//     There is NO lunch reset: classes / consultation hours can run 11 AM–1 PM.
 //
 //  2. WORKING HOURS — per-faculty:
-//     a. Did they update their status today? (statusUpdatedAt set today PH time)
+//     a. Is a class or consultation block active right now?
+//        YES → status follows the schedule automatically (IN_CLASS /
+//              IN_CONSULTATION), even if the faculty hasn't checked in yet,
+//              unless they manually set a status during this same block.
+//
+//     b. No active block — did they update their status today? (PH time)
 //        NO  + has class today  → ABSENT (auto-flagged)
 //        NO  + no class today   → OUT_OF_OFFICE
 //
-//     b. YES — they are "present". Now check for active blocks:
+//     c. YES — they are "present":
 //        • isManualOverride TRUE  and the override belongs to the CURRENT block
 //          (statusUpdatedAt >= current block startTime today)
 //          → SKIP — respect the faculty's choice for this block
@@ -69,9 +75,8 @@ const startStatusUpdater = () => {
 
       // ── 1. OFF-HOURS & LUNCH sweep ────────────────────────────────────────
       const isOffHours = currentHour < 6 || currentHour >= 20;
-      const isLunch    = currentHour >= 11 && currentHour < 13;
 
-      if (isOffHours || isLunch) {
+      if (isOffHours) {
         // Only reset faculty who have NOT manually chosen a status
         await User.updateMany(
           { role: 'FACULTY', isManualOverride: false },
@@ -79,7 +84,7 @@ const startStatusUpdater = () => {
             $set: {
               currentStatus:   'OUT_OF_OFFICE',
               currentLocation: '',
-              statusNote:      isLunch ? 'Auto-Reset: Lunch break' : 'Auto-Reset: Off-hours',
+              statusNote:      'Auto-Reset: Off-hours',
               isManualOverride: false,
             },
           }
@@ -111,8 +116,14 @@ const startStatusUpdater = () => {
 
         const hasClassToday = classBlocks.length > 0;
 
-        // ── SCENARIO A: Not updated today — treat as absent ──────────────
-        if (!updatedToday) {
+        // Is a class / consultation block running right now?
+        const activeClass   = findActiveBlock(classBlocks,   nowMinutes);
+        const activeConsult = findActiveBlock(consultBlocks, nowMinutes);
+        const activeBlock   = activeClass || activeConsult;
+
+        // ── SCENARIO A: Not updated today AND nothing scheduled right now ─
+        // (if a block is active we skip this and let the schedule set the status)
+        if (!updatedToday && !activeBlock) {
           const newStatus = hasClassToday ? 'ABSENT' : 'OUT_OF_OFFICE';
           const newNote   = hasClassToday
             ? 'Auto-flagged: missed scheduled class day'
@@ -128,15 +139,11 @@ const startStatusUpdater = () => {
           continue;
         }
 
-        // ── SCENARIO B: Updated today — check for active blocks ──────────
-        const activeClass   = findActiveBlock(classBlocks,   nowMinutes);
-        const activeConsult = findActiveBlock(consultBlocks, nowMinutes);
-        const activeBlock   = activeClass || activeConsult;
-
+        // ── SCENARIO B: schedule-driven status ───────────────────────────
         // Manual override logic:
         // Respect the override only if it was set AFTER the current block started.
         // When a NEW block begins (blockStart > statusUpdatedAt), auto resumes.
-        if (faculty.isManualOverride && activeBlock) {
+        if (faculty.isManualOverride && activeBlock && updatedToday) {
           const blockStart    = phTodayAt(activeBlock.startTime, ph);
           const overrideSetAt = new Date(
             faculty.statusUpdatedAt.getTime() + 8 * 60 * 60 * 1000
@@ -146,7 +153,7 @@ const startStatusUpdater = () => {
             continue;
           }
           // Their override predates this block → auto takes back control below
-        } else if (faculty.isManualOverride && !activeBlock) {
+        } else if (faculty.isManualOverride && !activeBlock && updatedToday) {
           // Free period — always respect manual status
           continue;
         }
@@ -166,6 +173,7 @@ const startStatusUpdater = () => {
         if (faculty.currentStatus !== newStatus || faculty.isManualOverride) {
           faculty.currentStatus    = newStatus;
           faculty.currentLocation  = newLocation;
+          faculty.statusNote       = '';   // clear stale "Auto-Reset…" notes
           faculty.isManualOverride = false;
           // Do NOT touch statusUpdatedAt — it tracks human updates only
           await faculty.save();

@@ -17,13 +17,17 @@ if (process.env.EMAIL_USER && process.env.EMAIL_APP_PASSWORD) {
   });
 }
 
+// With no SMTP credentials (and not in production) nothing is emailed. sendMail() then returns
+// { preview: true } so the calling route can hand the link to the page to show in a window.
+const LOCAL_PREVIEW = !transporter && process.env.NODE_ENV !== 'production';
+
 async function sendMail({ to, subject, html }) {
   if (!transporter) {
     console.log('\n[DEV MODE: no EMAIL_USER/EMAIL_APP_PASSWORD set in .env]');
     console.log(`Would send email to: ${to}`);
     console.log(`Subject: ${subject}`);
     console.log(`${html}\n`);
-    return;
+    return { preview: LOCAL_PREVIEW };
   }
 
   await transporter.sendMail({
@@ -32,10 +36,11 @@ async function sendMail({ to, subject, html }) {
     subject,
     html
   });
+  return { preview: false };
 }
 
 async function sendVerificationEmail(to, link) {
-  await sendMail({
+  return sendMail({
     to,
     subject: 'Verify your email address',
     html: `<p>Welcome! Please confirm this is your email address by clicking the link below.</p>
@@ -44,8 +49,25 @@ async function sendVerificationEmail(to, link) {
   });
 }
 
+// Sent when an Admin approves a pending account. If the person still has to confirm their email
+// address, `verifyLink` carries a fresh one-time link; otherwise `loginLink` just sends them to login.
+async function sendApprovedEmail(to, { verifyLink, loginLink }) {
+  const next = verifyLink
+    ? `<p>One last step: confirm this is your email address by clicking the link below, then you can log in.</p>
+           <p><a href="${verifyLink}">${verifyLink}</a></p>
+           <p>This link expires in 24 hours. If it expires, use "Resend" on the login page to get a new one.</p>`
+    : `<p>You can now log in here:</p>
+           <p><a href="${loginLink}">${loginLink}</a></p>`;
+  return sendMail({
+    to,
+    subject: 'Your account has been approved',
+    html: `<p>Good news — an administrator has approved your account.</p>
+           ${next}`
+  });
+}
+
 async function sendResetEmail(to, link) {
-  await sendMail({
+  return sendMail({
     to,
     subject: 'Password reset request',
     html: `<p>A password reset was requested for this account. Click below to choose a new password.</p>
@@ -54,4 +76,4 @@ async function sendResetEmail(to, link) {
   });
 }
 
-module.exports = { sendMail, sendVerificationEmail, sendResetEmail };
+module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail };

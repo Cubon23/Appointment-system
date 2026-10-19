@@ -4,11 +4,12 @@ import { formatDate, formatDateTime } from './dateUtils';
 import { 
   Box, Heading, Text, Button as ChakraButton, VStack, Input, FormControl, FormLabel, 
   useToast, Select, HStack, Flex, Divider, Table, Thead, Tbody, Tr, Th, Td, Badge, useColorMode, useColorModeValue,
-  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure 
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import { statusColor, statusLabel } from './appointmentStatus';
 import AnalyticsReport from './AnalyticsReport';
 // import { QRCodeSVG } from 'qrcode.react';
 
@@ -27,7 +28,6 @@ export default function AdminDashboard() {
   const toast = useToast();
   const userName = localStorage.getItem('userName');
   const { colorMode, toggleColorMode } = useColorMode();
-  const { isOpen, onOpen, onClose } = useDisclosure(); 
 
   const [activePage, setActivePage] = useState('home');
   const [facultyList, setFacultyList] = useState<any[]>([]);
@@ -51,8 +51,10 @@ export default function AdminDashboard() {
   // const [generatedQr, setGeneratedQr] = useState('');
   const [newFacultyName, setNewFacultyName] = useState('');
 
-  const [verifyingUser, setVerifyingUser] = useState<{ id: string, role: string, name: string } | null>(null);
-  const [assignedIdValue, setAssignedIdValue] = useState('');
+  const [usersMenuOpen, setUsersMenuOpen] = useState(false); // User Management dropdown
+  const [idEdit, setIdEdit] = useState<any | null>(null);    // account whose School/Faculty ID is being added or edited
+  const [idEditValue, setIdEditValue] = useState('');
+  const [idSaving, setIdSaving] = useState(false);
 
   const [selectedFacultyId, setSelectedFacultyId] = useState('');
   const [subject, setSubject] = useState('');
@@ -85,6 +87,15 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => { fetchAllData(); }, []);
+
+  // Keep faculty statuses live (they change automatically with class / consultation blocks)
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/status`).then(res => res.json()).then(data => setFacultyList(data));
+    }, 10000);
+    return () => clearInterval(id);
+  }, []);
 
   // Reports & Analytics charts now come from the backend (GET /api/analytics/overview),
   // rendered by <AnalyticsReport />. Consultation Records below still uses `appointments`.
@@ -126,28 +137,44 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  const handleVerifyUser = (id: string, role: string, name: string) => {
-  setVerifyingUser({ id, role, name });
-  setAssignedIdValue('');
-  onOpen();
-};
+  // Quick lookup so the faculty table (which comes from the live-status list) can show IDs.
+  const userById: Record<string, any> = {};
+  allUsers.forEach(u => { userById[u._id] = u; });
 
-  const submitVerification = async () => {
-    if (!verifyingUser) return;
+  const openIdEdit = (u: any) => { setIdEdit(u); setIdEditValue((u.role === 'STUDENT' ? u.schoolId : u.facultyId) || ''); };
+
+  const saveId = async () => {
+    if (!idEdit) return;
+    setIdSaving(true);
     try {
-      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${verifyingUser.id}/verify`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${idEdit._id}/id`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idValue: assignedIdValue })
+        body: JSON.stringify({ idValue: idEditValue })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      toast({ title: 'Verified', description: data.message, status: 'success' });
-      onClose();
-      // refresh the list so the verified user disappears from the pending queue
+      toast({ title: 'ID saved', description: data.message, status: 'success' });
+      setIdEdit(null);
       fetchAllData();
     } catch (error: any) {
-      toast({ title: 'Verification Failed', description: error.message, status: 'error' });
+      toast({ title: 'Could not save ID', description: error.message, status: 'error' });
+    }
+    setIdSaving(false);
+  };
+
+  // Approve a pending account. No ID is assigned here — the School ID / Faculty ID the person
+  // entered at registration is kept as-is.
+  const approveUser = async (id: string, name: string) => {
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${id}/verify`, { method: 'PATCH' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Approved', description: data.message || `${name} has been approved.`, status: data.emailSent === false ? 'warning' : 'success', duration: data.emailSent === false ? 9000 : 5000 });
+      // refresh the list so the approved user disappears from the pending queue
+      fetchAllData();
+    } catch (error: any) {
+      toast({ title: 'Approval Failed', description: error.message, status: 'error' });
     }
   };
 
@@ -211,13 +238,49 @@ export default function AdminDashboard() {
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[
-            { page: "home", label: "Provisioning" },
+            { page: "home", label: "Class Schedules" },
             { page: "appointments", label: `Appointments (${appointments.filter(a => a.status === 'PENDING').length})` },
             { page: "verification", label: "Verification Queue" },
-            { page: "users", label: "User Management" },
+            { page: "__users", label: "User Management" },
             { page: "analytics", label: "Reports & Analytics" },
             { page: "records", label: "Consultation Records" }
           ].map(({ page, label }) => {
+            if (page === "__users") {
+              const parentActive = activePage === 'provision' || activePage === 'users';
+              const expanded = usersMenuOpen || parentActive;
+              const subItems = [
+                { key: 'provision', label: 'Provision Account', active: activePage === 'provision', go: () => setActivePage('provision') },
+                { key: 'faculty', label: `Faculty (${allUsers.filter(u => u.role === 'FACULTY').length || facultyList.length})`, active: activePage === 'users' && userTab === 'faculty', go: () => { setUserTab('faculty'); setActivePage('users'); } },
+                { key: 'students', label: `Students (${allUsers.filter(u => u.role === 'STUDENT').length})`, active: activePage === 'users' && userTab === 'students', go: () => { setUserTab('students'); setActivePage('users'); } },
+              ];
+              return (
+                <div key={page}>
+                  <button onClick={() => setUsersMenuOpen(!expanded)} aria-expanded={expanded} style={{
+                      ...btnBase, width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "9px 10px", borderRadius: "7px",
+                      background: parentActive ? C.navBg : "transparent", color: parentActive ? C.navActive : C.navText,
+                      fontWeight: parentActive ? 600 : 400, fontSize: "13px", textAlign: "left",
+                      borderLeft: parentActive ? "2px solid #2563eb" : "2px solid transparent", transition: "all 0.15s ease",
+                    }}>
+                    <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: parentActive ? "#60a5fa" : "transparent", border: parentActive ? "none" : "1.5px solid #3a5373", flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>{label}</span>
+                    <span style={{ fontSize: "10px", transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}>▾</span>
+                  </button>
+                  {expanded && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", margin: "3px 0 3px 14px", paddingLeft: "8px", borderLeft: `1px solid ${dk ? "#1e3048" : "rgba(255,255,255,0.12)"}` }}>
+                      {subItems.map(it => (
+                        <button key={it.key} onClick={it.go} style={{
+                            ...btnBase, padding: "7px 10px", borderRadius: "6px", textAlign: "left", fontSize: "12.5px",
+                            background: it.active ? C.navBg : "transparent", color: it.active ? C.navActive : C.navText,
+                            fontWeight: it.active ? 600 : 400, transition: "all 0.15s ease",
+                          }}>
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             const active = activePage === page;
             return (
               <button key={page} onClick={() => setActivePage(page)} style={{
@@ -245,8 +308,9 @@ export default function AdminDashboard() {
       <Box flex="1" p={10} overflowY="auto">
         <Box mb={8}>
           <Heading size="lg" color={textColor} letterSpacing="tight">
-            {activePage === 'home' && "System Provisioning"}
-            {activePage === 'users' && "User Management"}
+            {activePage === 'home' && "Teaching Schedules"}
+            {activePage === 'provision' && "Provision Account"}
+            {activePage === 'users' && (userTab === 'faculty' ? "Faculty Management" : "Student Management")}
             {activePage === 'appointments' && "Appointment Management"}
             {activePage === 'verification' && "Account Verification Queue"}
             {activePage === 'analytics' && "Reports & Analytics"}
@@ -257,10 +321,35 @@ export default function AdminDashboard() {
       
 
         {activePage === 'home' && (
-          <Box display="flex" gap={8} flexDir={{ base: 'column', xl: 'row' }}>
-            <Box flex="1" display="flex" flexDir="column" gap={6}>
+          <Box maxW="760px">
               <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
-                <Heading size="sm" mb={6} textTransform="uppercase" color={mutedText}>1. Provision Faculty Account</Heading>
+                <Heading size="sm" mb={6} textTransform="uppercase" color={mutedText}>Assign Teaching Schedule</Heading>
+                <form onSubmit={handleAddSchedule}>
+                  <VStack spacing={4}>
+                    <HStack w="100%">
+                      <FormControl isRequired><FormLabel color={textColor}>Instructor</FormLabel><Select placeholder="Choose..." value={selectedFacultyId} onChange={(e) => setSelectedFacultyId(e.target.value)} color={textColor} borderColor={borderColor}>{facultyList.map(f => <option key={f._id} value={f._id}>{f.name}</option>)}</Select></FormControl>
+                      <FormControl isRequired><FormLabel color={textColor}>Subject</FormLabel><Input value={subject} onChange={e => setSubject(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
+                    </HStack>
+                    <HStack w="100%">
+                      <FormControl isRequired><FormLabel color={textColor}>Day</FormLabel><Select value={dayOfWeek} onChange={e => setDayOfWeek(e.target.value)} color={textColor} borderColor={borderColor}><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></Select></FormControl>
+                      <FormControl isRequired><FormLabel color={textColor}>Room</FormLabel><Input value={schedRoom} onChange={e => setSchedRoom(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
+                    </HStack>
+                    <HStack w="100%">
+                      <FormControl isRequired><FormLabel color={textColor}>Start</FormLabel><Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
+                      <FormControl isRequired><FormLabel color={textColor}>End</FormLabel><Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
+                    </HStack>
+                    <ChakraButton type="submit" colorScheme="gray" variant="outline" w="100%">Assign Class Block</ChakraButton>
+                  </VStack>
+                </form>
+              </Box>
+          </Box>
+        )}
+
+        {activePage === 'provision' && (
+          <Box display="flex" gap={8} flexDir={{ base: 'column', xl: 'row' }}>
+            <Box flex="1">
+              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+                <Heading size="sm" mb={6} textTransform="uppercase" color={mutedText}>Provision Account</Heading>
                 <form onSubmit={handleAddFaculty}>
                   <VStack spacing={4}>
                     <FormControl isRequired><FormLabel color={textColor}>Full Name</FormLabel><Input value={name} onChange={(e) => setName(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
@@ -296,29 +385,7 @@ export default function AdminDashboard() {
                   </VStack>
                 </form>
               </Box>
-
-              <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
-                <Heading size="sm" mb={6} textTransform="uppercase" color={mutedText}>2. Assign Teaching Schedule</Heading>
-                <form onSubmit={handleAddSchedule}>
-                  <VStack spacing={4}>
-                    <HStack w="100%">
-                      <FormControl isRequired><FormLabel color={textColor}>Instructor</FormLabel><Select placeholder="Choose..." value={selectedFacultyId} onChange={(e) => setSelectedFacultyId(e.target.value)} color={textColor} borderColor={borderColor}>{facultyList.map(f => <option key={f._id} value={f._id}>{f.name}</option>)}</Select></FormControl>
-                      <FormControl isRequired><FormLabel color={textColor}>Subject</FormLabel><Input value={subject} onChange={e => setSubject(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
-                    </HStack>
-                    <HStack w="100%">
-                      <FormControl isRequired><FormLabel color={textColor}>Day</FormLabel><Select value={dayOfWeek} onChange={e => setDayOfWeek(e.target.value)} color={textColor} borderColor={borderColor}><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></Select></FormControl>
-                      <FormControl isRequired><FormLabel color={textColor}>Room</FormLabel><Input value={schedRoom} onChange={e => setSchedRoom(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
-                    </HStack>
-                    <HStack w="100%">
-                      <FormControl isRequired><FormLabel color={textColor}>Start</FormLabel><Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
-                      <FormControl isRequired><FormLabel color={textColor}>End</FormLabel><Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} color={textColor} borderColor={borderColor}/></FormControl>
-                    </HStack>
-                    <ChakraButton type="submit" colorScheme="gray" variant="outline" w="100%">Assign Class Block</ChakraButton>
-                  </VStack>
-                </form>
-              </Box>
             </Box>
-
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" flex="1" minH="400px" display="flex" flexDir="column" alignItems="center" justifyContent="center">
               {newFacultyName ? (
                 <VStack spacing={4}>
@@ -330,17 +397,6 @@ export default function AdminDashboard() {
               )}
             </Box>
           </Box>
-        )}
-
-        {activePage === 'users' && (
-          <HStack spacing={2} mb={4}>
-            <ChakraButton size="sm" colorScheme="blue" variant={userTab === 'faculty' ? 'solid' : 'outline'} onClick={() => setUserTab('faculty')}>
-              Faculty ({allUsers.filter(u => u.role === 'FACULTY').length || facultyList.length})
-            </ChakraButton>
-            <ChakraButton size="sm" colorScheme="blue" variant={userTab === 'students' ? 'solid' : 'outline'} onClick={() => setUserTab('students')}>
-              Students ({allUsers.filter(u => u.role === 'STUDENT').length})
-            </ChakraButton>
-          </HStack>
         )}
 
         {activePage === 'users' && userTab === 'faculty' && (
@@ -355,7 +411,7 @@ export default function AdminDashboard() {
               borderColor={borderColor}
             />
             <Table variant="simple" size="sm">
-              <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Position</Th><Th color={mutedText}>Live Status</Th></Tr></Thead>
+              <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Position</Th><Th color={mutedText}>Faculty ID</Th><Th color={mutedText}>Live Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>
               <Tbody>
                 {facultyList
                   .filter(prof =>
@@ -366,6 +422,7 @@ export default function AdminDashboard() {
                     <Tr key={prof._id}>
                       <Td fontWeight="bold" color={textColor}>{prof.name}</Td>
                       <Td color={textColor}>{prof.programPosition}</Td>
+                      <Td color={textColor}>{userById[prof._id]?.facultyId || (userById[prof._id]?.noIdYet ? <Badge colorScheme="yellow">No ID yet</Badge> : '—')}</Td>
                       <Td>
                         <Badge colorScheme={
                           prof.currentStatus === 'AVAILABLE'       ? 'green'  :
@@ -383,6 +440,13 @@ export default function AdminDashboard() {
                             ON_LEAVE: 'On Leave', ABSENT: 'Absent', NOT_UPDATED: 'No Update',
                           } as Record<string,string>)[prof.currentStatus] ?? prof.currentStatus}
                         </Badge>
+                      </Td>
+                      <Td>
+                        {userById[prof._id]?.role === 'FACULTY' && (
+                          <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(userById[prof._id])}>
+                            {userById[prof._id]?.facultyId ? 'Edit ID' : 'Add ID'}
+                          </ChakraButton>
+                        )}
                       </Td>
                     </Tr>
                   ))}
@@ -433,7 +497,7 @@ export default function AdminDashboard() {
             </HStack>
 
             <Table variant="simple" size="sm">
-              <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>School ID</Th><Th color={mutedText}>Program / Section</Th><Th color={mutedText}>Email</Th></Tr></Thead>
+              <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>School ID</Th><Th color={mutedText}>Program / Section</Th><Th color={mutedText}>Email</Th><Th color={mutedText}>Action</Th></Tr></Thead>
               <Tbody>
                 {allUsers
                   .filter(u => u.role === 'STUDENT')
@@ -444,9 +508,14 @@ export default function AdminDashboard() {
                   .map(student => (
                     <Tr key={student._id}>
                       <Td fontWeight="bold" color={textColor}>{student.name}</Td>
-                      <Td color={textColor}>{student.schoolId}</Td>
+                      <Td color={textColor}>{student.schoolId || (student.noIdYet ? <Badge colorScheme="yellow">No ID yet</Badge> : '—')}</Td>
                       <Td color={textColor}>{student.programPosition}</Td>
                       <Td color={textColor}>{student.email}</Td>
+                      <Td>
+                        <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(student)}>
+                          {student.schoolId ? 'Edit ID' : 'Add ID'}
+                        </ChakraButton>
+                      </Td>
                     </Tr>
                   ))}
               </Tbody>
@@ -547,7 +616,7 @@ export default function AdminDashboard() {
                     <Td color={textColor}>{apt.facultyId ? apt.facultyId.name : 'Unknown'}</Td>
                     <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                     <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
-                    <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'COMPLETED' ? 'blue' : 'yellow'}>{apt.status}</Badge></Td>
+                    <Td><Badge colorScheme={statusColor(apt.status)}>{statusLabel(apt.status)}</Badge></Td>
                     <Td>
                       {apt.status === 'PENDING' && (
                         <HStack spacing={2}>
@@ -570,7 +639,7 @@ export default function AdminDashboard() {
           </Text> */}
           <Divider mb={4} borderColor={borderColor}/>
           <Table variant="simple" size="sm">
-            <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Email</Th><Th color={mutedText}>Program</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>
+            <Thead><Tr><Th color={mutedText}>Name</Th><Th color={mutedText}>Email</Th><Th color={mutedText}>Program</Th><Th color={mutedText}>Registered ID</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>
             <Tbody>
               {allUsers
                 .filter(u => 
@@ -582,10 +651,11 @@ export default function AdminDashboard() {
                     <Td fontWeight="bold" color={textColor}>{user.name}</Td>
                     <Td color={textColor}>{user.email}</Td>
                     <Td color={textColor}>{user.programPosition}</Td>
-                    <Td><Badge colorScheme="orange">Awaiting {user.role === 'STUDENT' ? 'School' : 'Faculty'} ID</Badge></Td>
+                    <Td color={textColor}>{(user.role === 'STUDENT' ? user.schoolId : user.facultyId) || (user.noIdYet ? <Badge colorScheme="yellow">No ID yet</Badge> : '—')}</Td>
+                    <Td><Badge colorScheme="orange">Awaiting approval</Badge></Td>
                     <Td>
-                      <ChakraButton size="xs" colorScheme="green" onClick={() => handleVerifyUser(user._id, user.role, user.name)}>
-                        Assign ID & Verify
+                      <ChakraButton size="xs" colorScheme="green" onClick={() => approveUser(user._id, user.name)}>
+                        Approve
                       </ChakraButton>
                     </Td>
                   </Tr>
@@ -595,25 +665,25 @@ export default function AdminDashboard() {
         </Box>
       )}
 
-      <Modal isOpen={isOpen} onClose={onClose} isCentered>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Verify {verifyingUser?.name}</ModalHeader>
-          <ModalCloseButton />
-          <ModalBody display="flex" flexDirection="column" pb={8}>
-            <FormControl isRequired mb={4}>
-              <FormLabel>{verifyingUser?.role === 'STUDENT' ? 'School ID' : 'Faculty ID'}</FormLabel>
-              <Input 
-                placeholder={verifyingUser?.role === 'STUDENT' ? '2023-1234-A' : 'UA-COSFM-2025-1234'}
-                value={assignedIdValue}
-                onChange={(e) => setAssignedIdValue(e.target.value.toUpperCase())}
-              />
-            </FormControl>
-            <ChakraButton colorScheme="green" onClick={submitVerification}>Confirm Verification</ChakraButton>
-          </ModalBody>
-        </ModalContent>
+        <Modal isOpen={!!idEdit} onClose={() => setIdEdit(null)} isCentered>
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>{idEdit?.role === 'STUDENT' ? 'School ID' : 'Faculty ID'} — {idEdit?.name}</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody pb={6}>
+              <FormControl isRequired mb={4}>
+                <FormLabel>{idEdit?.role === 'STUDENT' ? 'School ID' : 'Faculty ID'}</FormLabel>
+                <Input
+                  placeholder={idEdit?.role === 'STUDENT' ? '2024-1234-A or 2025-S04321' : 'UA-COSFM-2025-1234'}
+                  value={idEditValue}
+                  onChange={(e) => setIdEditValue(e.target.value.toUpperCase())}
+                />
+              </FormControl>
+              <ChakraButton colorScheme="blue" w="100%" onClick={saveId} isLoading={idSaving}>Save ID</ChakraButton>
+            </ModalBody>
+          </ModalContent>
         </Modal>
       </Box>
     </Flex>
   );
-}
+}

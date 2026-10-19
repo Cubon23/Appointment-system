@@ -130,7 +130,7 @@ const FAQS = [
   { q: 'Who can use CCIS Sync?', a: 'Students and faculty of the College of Computing and Information Sciences. Register with your Google (Gmail) account and your School/Faculty ID — Admin verifies every account before it’s activated.' },
   { q: 'How do I book a consultation?', a: 'Log in, choose a faculty member and an available time, then submit your request with a short reason. The faculty member approves or declines it, and you are notified in your Mail.' },
   { q: 'Can I cancel an appointment?', a: 'Yes. You can cancel your own appointment from your dashboard, and the faculty member is notified.' },
-  { q: 'Why is my faculty account still pending?', a: 'Faculty accounts registered without an issued Faculty ID are verified by an administrator before access is granted.' },
+  { q: 'Why is my account still pending?', a: 'New student and faculty accounts are reviewed by an administrator before access is granted. You will get an email once yours is approved; click the link in it to confirm your email, then log in.' },
   { q: 'What if a faculty member is on leave?', a: 'When a faculty member declares leave for a date, appointments on that date are cancelled automatically and the affected students are notified.' },
 ];
 
@@ -187,6 +187,7 @@ export default function LandingPage() {
   const [regRole, setRegRole] = useState<'STUDENT' | 'FACULTY'>('STUDENT');
 
   const [schoolId, setSchoolId] = useState('');
+  const [noId, setNoId] = useState(false); // "I don't have my ID yet" (students and faculty)
 
   // NEW: Cascading Dropdown State
   const [selProgram, setSelProgram] = useState('');
@@ -213,6 +214,8 @@ export default function LandingPage() {
 
   // --- THE TRUE LOGIN HANDLER ---
   const [isResending, setIsResending] = useState(false);
+  // Local development only: when the server has no email set up it hands back the link, shown here.
+  const [devLink, setDevLink] = useState<{ title: string; link: string; button: string } | null>(null);
   const handleResendVerification = async () => {
     if (!loginEmail.trim()) {
       toast({ title: 'Enter your email first', description: 'Type your Gmail username in the email box above, then click Resend.', status: 'info', position: 'top' });
@@ -227,7 +230,11 @@ export default function LandingPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not send the email.');
-      toast({ title: 'Check your inbox', description: data.message, status: 'success', position: 'top', duration: 6000 });
+      if (data.devLink) {
+        setDevLink({ title: 'Verification link', link: data.devLink, button: 'Verify my email' });
+      } else {
+        toast({ title: 'Check your inbox', description: data.message, status: 'success', position: 'top', duration: 6000 });
+      }
     } catch (error: any) {
       toast({ title: 'Could not resend', description: error.message, status: 'error', position: 'top' });
     } finally {
@@ -302,12 +309,16 @@ export default function LandingPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Something went wrong.');
 
-      toast({
-        title: 'Check your email',
-        description: data.message,
-        status: 'success',
-        duration: 6000
-      });
+      if (data.devLink) {
+        setDevLink({ title: 'Password reset link', link: data.devLink, button: 'Reset my password' });
+      } else {
+        toast({
+          title: 'Check your email',
+          description: data.message,
+          status: 'success',
+          duration: 6000
+        });
+      }
       setForgotEmail('');
       onForgotClose();
     } catch (error: any) {
@@ -317,9 +328,26 @@ export default function LandingPage() {
   };
 
 
+  // Capitalise the first letter of the name and of every word that follows a space or a comma.
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formattedName = e.target.value.replace(/(^\w|\s\w)/g, (m) => m.toUpperCase());
+    const formattedName = e.target.value.replace(/(^|[\s,])([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase());
     setRegName(formattedName);
+  };
+
+  // Names are entered as "Last name, First name, Middle initial" (middle initial optional), e.g.
+  // "Dela Cruz, Juan, A." Returns the cleaned-up version, or null when the format is wrong.
+  const parseRegName = (raw: string): string | null => {
+    const parts = raw.split(',').map(p => p.trim().replace(/\s+/g, ' '));
+    if (parts.length < 2 || parts.length > 3) return null;
+    const [last, first, middle = ''] = parts;
+    const namePattern = /^\p{L}[\p{L}\s.'’-]*$/u;
+    if (!namePattern.test(last) || !namePattern.test(first)) return null;
+    if (middle) {
+      const m = middle.match(/^(\p{L})\.?$/u);
+      if (!m) return null;
+      return `${last}, ${first}, ${m[1].toUpperCase()}.`;
+    }
+    return `${last}, ${first}`;
   };
 
   // --- THE REGISTRATION HANDLER ---
@@ -331,7 +359,7 @@ export default function LandingPage() {
     return;
   }
 
-  if (regRole === 'STUDENT') {
+  if (regRole === 'STUDENT' && !noId) {
     const schoolIdPattern = /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/;
     if (!schoolIdPattern.test(schoolId)) {
       toast({ title: 'Invalid School ID', description: 'Format must be e.g. 2024-1234-A or 2025-S04321', status: 'warning' });
@@ -339,7 +367,7 @@ export default function LandingPage() {
     }
   }
 
-  if (regRole === 'FACULTY' && facultyId) {
+  if (regRole === 'FACULTY' && !noId) {
   const facultyIdPattern = /^UA-[A-Z]{5}-\d{4}-\d{4}$/;
   if (!facultyIdPattern.test(facultyId)) {
     toast({ title: 'Invalid Faculty ID', description: 'Format must be e.g. UA-COSFM-2022-1234', status: 'warning' });
@@ -347,10 +375,23 @@ export default function LandingPage() {
   }
 }
 
+  const cleanName = parseRegName(regName);
+  if (!cleanName) {
+    toast({
+      title: 'Check your name',
+      description: 'Enter your name as: Last name, First name, Middle initial, separated by commas (e.g. Dela Cruz, Juan, A.). The middle initial is optional.',
+      status: 'warning',
+      position: 'top',
+      duration: 7000,
+      isClosable: true
+    });
+    return;
+  }
+
   setIsRegistering(true);
 
     try {
-      const baseName = nameSuffix ? `${regName.trim()} ${nameSuffix}` : regName.trim();
+      const baseName = nameSuffix ? `${cleanName} ${nameSuffix}` : cleanName;
       const finalFullName = regRole === 'FACULTY' ? `${facultyTitle} ${baseName}` : baseName;
 
       // NEW: Stitch the cascading dropdowns back together securely
@@ -378,8 +419,9 @@ export default function LandingPage() {
           password: regPassword,
           role: regRole,
           programPosition: finalProgramPosition,
-          schoolId: regRole === 'STUDENT' ? schoolId : undefined,
-          facultyId: regRole === 'FACULTY' ? facultyId : undefined,
+          schoolId: regRole === 'STUDENT' && !noId ? schoolId : undefined,
+          facultyId: regRole === 'FACULTY' && !noId ? facultyId : undefined,
+          noIdYet: noId,
           privacyAccepted: acceptedPrivacy,
           gender: regGender
         })
@@ -389,9 +431,9 @@ export default function LandingPage() {
       if (!response.ok) throw new Error(data.error);
 
       toast({
-        title: regRole === 'STUDENT' ? 'Registration Complete' : 'Registration Pending',
+        title: 'Registration Received',
         description: data.message,
-        status: regRole === 'STUDENT' ? 'success' : 'info',
+        status: 'info',
         duration: 7000,
         isClosable: true,
         position: 'top'
@@ -405,6 +447,7 @@ export default function LandingPage() {
       setSelSection('');
       setFacultyPosition('');
       setRegGender('');
+      setNoId(false);
       setAcceptedPrivacy(false);
     }catch (error) {
       toast({ 
@@ -502,12 +545,13 @@ export default function LandingPage() {
           )}
 
           <FormControl isRequired>
-            <FormLabel>Full Name</FormLabel>
+            <FormLabel>Name</FormLabel>
             <Input 
-              placeholder="e.g. Juan Dela Cruz" 
+              placeholder="Last name, First name, M.I." 
               value={regName} 
               onChange={handleNameChange} 
             />
+            <FormHelperText>Separate with commas, e.g. Dela Cruz, Juan, A. (middle initial is optional)</FormHelperText>
           </FormControl>
 
           <FormControl w="110px">
@@ -537,15 +581,27 @@ export default function LandingPage() {
         {/* 3. DYNAMIC FORM FIELDS (ACADEMIC IDENTITY) */}
         {regRole === 'STUDENT' ? (
           <>
-            <FormControl isRequired>
-              <FormLabel>School ID</FormLabel>
-              <Input 
-                placeholder="2024-1234-A or 2025-S04321" 
-                value={schoolId} 
-                onChange={(e) => setSchoolId(e.target.value.toUpperCase())} 
-              />
-              <FormHelperText fontSize="xs">Old format: YYYY-XXXX-Letter · New format: YYYY-S0XXXX</FormHelperText>
-            </FormControl>
+            <Box>
+              {!noId && (
+                <FormControl isRequired>
+                  <FormLabel>School ID</FormLabel>
+                  <Input 
+                    placeholder="2024-1234-A or 2025-S04321" 
+                    value={schoolId} 
+                    onChange={(e) => setSchoolId(e.target.value.toUpperCase())} 
+                  />
+                  <FormHelperText fontSize="xs">Old format: YYYY-XXXX-Letter · New format: YYYY-S0XXXX</FormHelperText>
+                </FormControl>
+              )}
+              <Checkbox isChecked={noId} onChange={(e) => setNoId(e.target.checked)} size="sm" mt={noId ? 0 : 2}>
+                I don't have my School ID yet
+              </Checkbox>
+              {noId && (
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  An administrator will review your account without an ID and can add it for you later.
+                </Text>
+              )}
+            </Box>
           
             <FormControl isRequired>
               <FormLabel>Program / Year / Section</FormLabel>
@@ -606,14 +662,26 @@ export default function LandingPage() {
           </FormControl>
         )}
         {regRole === 'FACULTY' && (
-          <FormControl>
-            <FormLabel>Faculty ID <Text as="span" fontSize="xs" color="gray.400">(leave blank if not yet issued)</Text></FormLabel>
-            <Input 
-              placeholder="e.g. UA-COSFM-2022-1234" 
-              value={facultyId} 
-              onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
-            />
-          </FormControl>
+          <Box>
+            {!noId && (
+              <FormControl isRequired>
+                <FormLabel>Faculty ID</FormLabel>
+                <Input 
+                  placeholder="e.g. UA-COSFM-2022-1234" 
+                  value={facultyId} 
+                  onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
+                />
+              </FormControl>
+            )}
+            <Checkbox isChecked={noId} onChange={(e) => setNoId(e.target.checked)} size="sm" mt={noId ? 0 : 2}>
+              I don't have my Faculty ID yet
+            </Checkbox>
+            {noId && (
+              <Text fontSize="xs" color="gray.500" mt={1}>
+                An administrator will review your account without an ID and can add it for you later.
+              </Text>
+            )}
+          </Box>
         )}
 
         {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
@@ -1011,6 +1079,30 @@ export default function LandingPage() {
             <Button mt={6} w="100%" colorScheme="blue" onClick={() => { setAcceptedPrivacy(true); onPrivacyClose(); }}>
               I Understand and Agree
             </Button>
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+
+      {/* Local-development link window: shown instead of the terminal when email isn't set up */}
+      <Modal isOpen={!!devLink} onClose={() => setDevLink(null)} isCentered>
+        <ModalOverlay />
+        <ModalContent borderRadius="2xl" overflow="hidden" bg={modalBg}>
+          <ModalHeader color={headingColor}>{devLink?.title}</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={8}>
+            <Text fontSize="sm" color="gray.500" mb={4}>
+              Email isn't set up on this server yet, so nothing was sent to the inbox. Use the link here instead.
+              It works the same way as the emailed one.
+            </Text>
+            <Input readOnly value={devLink?.link || ''} fontSize="xs" mb={4} onFocus={(e) => e.target.select()} />
+            <HStack>
+              <Button colorScheme="blue" flex="1" onClick={() => { if (devLink) window.location.assign(devLink.link); }}>
+                {devLink?.button}
+              </Button>
+              <Button variant="outline" onClick={() => { if (devLink) navigator.clipboard?.writeText(devLink.link); toast({ title: 'Link copied', status: 'success', duration: 2000, position: 'top' }); }}>
+                Copy
+              </Button>
+            </HStack>
           </ModalBody>
         </ModalContent>
       </Modal>

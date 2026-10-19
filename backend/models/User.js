@@ -28,6 +28,8 @@ const UserSchema = new mongoose.Schema({
   resetPasswordToken: { type: String, select: false },
   resetPasswordExpires: { type: Date, select: false },
 
+  noIdYet: { type: Boolean, default: false }, // registered without a School/Faculty ID; an Admin adds it later in User Management
+
   schoolId: {
   type: String,
   required: false,

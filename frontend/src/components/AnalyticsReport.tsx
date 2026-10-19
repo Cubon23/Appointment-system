@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Box, Button, Divider, Flex, Heading, HStack, SimpleGrid, Spinner, Tab, TabList, TabPanel, TabPanels, Table,
+  Box, Button, Divider, Flex, Heading, HStack, Select, SimpleGrid, Spinner, Tab, TabList, TabPanel, TabPanels, Table,
   Tbody, Td, Text, Th, Thead, Tabs, Tr, VStack, useColorModeValue,
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import SimpleBarChart from './SimpleBarChart';
+import IdleHoursPanel from './IdleHoursPanel';
 
 // Shared by AdminDashboard and DeanDashboard. Everything shown here is calculated by the
 // database (MongoDB aggregation pipelines in routes/analytics.js) and fetched in ONE request.
@@ -14,11 +15,18 @@ interface LabelValue { label: string; value: number }
 interface Overview {
   generatedAt: string;
   demographics: { totalStudents: number; totalFaculty: number; byProgram: LabelValue[]; byYear: LabelValue[]; byGender: LabelValue[]; byFacultyGender: LabelValue[] };
-  statusSummary: { PENDING: number; APPROVED: number; REJECTED: number; COMPLETED: number; CANCELLED: number; total: number };
+  statusSummary: { PENDING: number; APPROVED: number; REJECTED: number; COMPLETED: number; CANCELLED: number; MISSED: number; total: number };
+  outcomes: {
+    total: number; pending: number; approved: number; completed: number; rejected: number; other: number;
+    cancelled: { total: number; byStudent: number; byFaculty: number; onLeave: number };
+    missed: { total: number; student: number; faculty: number };
+  };
+  weeklyMissed: LabelValue[];
+  facultyOutcomes: { facultyId: string; name: string; total: number; completed: number; rejected: number; cancelledByFaculty: number; studentNoShows: number; missedByFaculty: number }[];
   purposes: { total: number; items: { label: string; count: number; percent: number }[] };
+  studentOutcomes: { studentKey: string; name: string; section: string; completed: number; rejected: number; cancelledByStudent: number; noShows: number }[];
   utilization: { facultyId: string; name: string; programPosition?: string; completed: number; total: number }[];
   weekly: LabelValue[];
-  statusCompliance: { percent: number; compliantDays: number; expectedDays: number; workdays: number; facultyCount: number };
 }
 
 const DONUT_COLORS = ['#2563eb', '#16a34a', '#f08a3c', '#8b5cf6', '#e11d48', '#0891b2', '#94a3b8'];
@@ -68,29 +76,12 @@ function DonutChart({ items, centerLabel, centerSub, textColor, mutedColor }: {
   );
 }
 
-function GaugeChart({ percent, textColor, mutedColor }: { percent: number; textColor: string; mutedColor: string }) {
-  const arcLength = Math.PI * 80; // length of a semicircle with radius 80
-  const pct = Math.max(0, Math.min(100, percent));
-  const color = pct >= 80 ? '#16a34a' : pct >= 50 ? '#f08a3c' : '#dc2626';
-  const arc = 'M 20 100 A 80 80 0 0 1 180 100';
-  return (
-    <svg viewBox="0 0 200 125" width="100%" style={{ maxWidth: 280 }} role="img" aria-label={`Compliance ${pct}%`}>
-      <path d={arc} fill="none" stroke="#94a3b8" strokeOpacity="0.25" strokeWidth="18" strokeLinecap="round" />
-      {pct > 0 && (
-        <path d={arc} fill="none" stroke={color} strokeWidth="18" strokeLinecap="round" strokeDasharray={`${(pct / 100) * arcLength} ${arcLength}`} />
-      )}
-      <text x="100" y="92" textAnchor="middle" fontSize="30" fontWeight="800" fill={textColor}>{pct}%</text>
-      <text x="20" y="120" textAnchor="middle" fontSize="10" fill={mutedColor}>0%</text>
-      <text x="180" y="120" textAnchor="middle" fontSize="10" fill={mutedColor}>100%</text>
-    </svg>
-  );
-}
-
 // ── The report ──────────────────────────────────────────────────────────────
 
 export default function AnalyticsReport() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState('');
+  const [outcomeView, setOutcomeView] = useState<'faculty' | 'student'>('faculty');
   const [loading, setLoading] = useState(true);
 
   // Same palette values the dashboards already use
@@ -130,7 +121,7 @@ export default function AnalyticsReport() {
   }
   if (!data) return null;
 
-  const { demographics: demo, statusSummary: st, purposes, utilization, weekly, statusCompliance: comp } = data;
+  const { demographics: demo, statusSummary: st, outcomes, weeklyMissed, facultyOutcomes, studentOutcomes, purposes, utilization, weekly } = data;
   const demoSeries = [
     { title: 'By Program', data: demo.byProgram, color: '#2563eb' },
     { title: 'By Year Level', data: demo.byYear, color: '#16a34a' },
@@ -139,6 +130,96 @@ export default function AnalyticsReport() {
   ];
   const maxCompleted = Math.max(1, ...utilization.map(u => u.completed));
   const sectionTitle = { size: 'sm', color: muted, textTransform: 'uppercase' as const, mb: 4 };
+
+  // One merged table per role. "Completed" appears exactly once (it used to be shown both in the
+  // utilization leaderboard and in the outcomes table), and there is no "Requests" column.
+  const facultyRows = utilization.map(u => {
+    const o = facultyOutcomes.find(f => f.facultyId === u.facultyId);
+    return {
+      ...u,
+      rejected: o?.rejected ?? 0, cancelledByFaculty: o?.cancelledByFaculty ?? 0,
+      missedByFaculty: o?.missedByFaculty ?? 0, studentNoShows: o?.studentNoShows ?? 0,
+    };
+  });
+  const countCell = (n: number, color: string) => (
+    <Td isNumeric color={n > 0 ? color : muted} fontWeight={n > 0 ? 700 : 400}>{n}</Td>
+  );
+  const tableBoxProps = {
+    maxH: '320px', overflowY: 'auto' as const, borderWidth: '1px', borderColor: border, borderRadius: 'md',
+    sx: { '@media print': { maxHeight: 'none', overflow: 'visible' } },
+  };
+
+  const facultyOutcomesTable = facultyRows.length > 0 ? (
+    <Box {...tableBoxProps}>
+      <Table size="sm">
+        <Thead position="sticky" top={0} bg={surface} zIndex={1}>
+          <Tr>
+            <Th color={muted} w="48px">#</Th>
+            <Th color={muted}>Faculty</Th>
+            <Th color={muted} isNumeric>Completed</Th>
+            <Th color={muted} isNumeric>Rejected</Th>
+            <Th color={muted} isNumeric>Cancelled by faculty</Th>
+            <Th color={muted} isNumeric>Missed by faculty</Th>
+            <Th color={muted} isNumeric>Student no-shows</Th>
+            <Th color={muted} minW="120px">Share of top</Th>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {facultyRows.map((f, i) => (
+            <Tr key={f.facultyId}>
+              <Td color={muted}>{i + 1}</Td>
+              <Td>
+                <Text fontWeight="600" color={text}>{f.name}</Text>
+                {f.programPosition && <Text fontSize="xs" color={muted}>{f.programPosition}</Text>}
+              </Td>
+              <Td isNumeric fontWeight="700" color={text}>{f.completed}</Td>
+              <Td isNumeric color={text}>{f.rejected}</Td>
+              {countCell(f.cancelledByFaculty, '#64748b')}
+              {countCell(f.missedByFaculty, '#e11d48')}
+              {countCell(f.studentNoShows, '#f08a3c')}
+              <Td>
+                <Box h="8px" borderRadius="4px" bg={tint}>
+                  <Box h="100%" borderRadius="4px" bg="#f08a3c" w={`${(f.completed / maxCompleted) * 100}%`} />
+                </Box>
+              </Td>
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+    </Box>
+  ) : <Text fontSize="sm" color={muted}>No faculty accounts yet.</Text>;
+
+  const studentOutcomesTable = studentOutcomes.length > 0 ? (
+    <Box {...tableBoxProps}>
+      <Table size="sm">
+        <Thead position="sticky" top={0} bg={surface} zIndex={1}>
+          <Tr>
+            <Th color={muted} w="48px">#</Th>
+            <Th color={muted}>Student</Th>
+            <Th color={muted} isNumeric>Completed</Th>
+            <Th color={muted} isNumeric>Rejected</Th>
+            <Th color={muted} isNumeric>Cancelled by student</Th>
+            <Th color={muted} isNumeric>No-shows</Th>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {studentOutcomes.map((s, i) => (
+            <Tr key={s.studentKey}>
+              <Td color={muted}>{i + 1}</Td>
+              <Td>
+                <Text fontWeight="600" color={text}>{s.name}</Text>
+                {s.section && <Text fontSize="xs" color={muted}>{s.section}</Text>}
+              </Td>
+              <Td isNumeric fontWeight="700" color={text}>{s.completed}</Td>
+              <Td isNumeric color={text}>{s.rejected}</Td>
+              {countCell(s.cancelledByStudent, '#64748b')}
+              {countCell(s.noShows, '#f08a3c')}
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+    </Box>
+  ) : <Text fontSize="sm" color={muted}>No student outcomes yet.</Text>;
 
   return (
     <VStack align="stretch" spacing={8}>
@@ -152,12 +233,13 @@ export default function AnalyticsReport() {
       {/* Metric 2 — status summary cards */}
       <Box>
         <Heading {...sectionTitle}>Appointment Status</Heading>
-        <SimpleGrid columns={{ base: 2, md: 5 }} spacing={3}>
+        <SimpleGrid columns={{ base: 2, md: 6 }} spacing={3}>
           <StatCard label="Pending" value={st.PENDING} accent="#eab308" bg={tint} border={border} text={text} muted={muted} />
           <StatCard label="Approved" value={st.APPROVED} accent="#2563eb" bg={tint} border={border} text={text} muted={muted} />
           <StatCard label="Rejected" value={st.REJECTED} accent="#dc2626" bg={tint} border={border} text={text} muted={muted} />
           <StatCard label="Completed" value={st.COMPLETED} accent="#16a34a" bg={tint} border={border} text={text} muted={muted} />
           <StatCard label="Cancelled" value={st.CANCELLED} accent="#94a3b8" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Missed" value={st.MISSED} accent="#f08a3c" bg={tint} border={border} text={text} muted={muted} />
         </SimpleGrid>
         <Text fontSize="xs" color={muted} mt={2}>{st.total} appointment requests in total.</Text>
       </Box>
@@ -245,62 +327,58 @@ export default function AnalyticsReport() {
 
       <Divider borderColor={border} />
 
-      {/* Metric 4 — faculty utilization leaderboard */}
+      {/* Metric 4 — outcomes per faculty / per student (dropdown) */}
       <Box>
-        <Heading {...sectionTitle}>Faculty Utilization (completed consultations)</Heading>
-        {utilization.length > 0 ? (
-          <Box maxH="320px" overflowY="auto" borderWidth="1px" borderColor={border} borderRadius="md" sx={{ '@media print': { maxHeight: 'none', overflow: 'visible' } }}>
-            <Table size="sm">
-              <Thead position="sticky" top={0} bg={surface} zIndex={1}>
-                <Tr>
-                  <Th color={muted} w="48px">#</Th>
-                  <Th color={muted}>Faculty</Th>
-                  <Th color={muted} isNumeric>Completed</Th>
-                  <Th color={muted} isNumeric>Requests</Th>
-                  <Th color={muted} minW="120px">Share of top</Th>
-                </Tr>
-              </Thead>
-              <Tbody>
-                {utilization.map((u, i) => (
-                  <Tr key={u.facultyId}>
-                    <Td color={muted}>{i + 1}</Td>
-                    <Td>
-                      <Text fontWeight="600" color={text}>{u.name}</Text>
-                      {u.programPosition && <Text fontSize="xs" color={muted}>{u.programPosition}</Text>}
-                    </Td>
-                    <Td isNumeric fontWeight="700" color={text}>{u.completed}</Td>
-                    <Td isNumeric color={muted}>{u.total}</Td>
-                    <Td>
-                      <Box h="8px" borderRadius="4px" bg={tint}>
-                        <Box h="100%" borderRadius="4px" bg="#f08a3c" w={`${(u.completed / maxCompleted) * 100}%`} />
-                      </Box>
-                    </Td>
-                  </Tr>
-                ))}
-              </Tbody>
-            </Table>
-          </Box>
-        ) : <Text fontSize="sm" color={muted}>No faculty accounts yet.</Text>}
+        <HStack justify="space-between" align="center" mb={4} wrap="wrap" spacing={3}>
+          <Heading size="sm" color={muted} textTransform="uppercase">
+            {outcomeView === 'faculty' ? 'Faculty Outcomes' : 'Student Outcomes'}
+          </Heading>
+          <Select
+            size="sm" w="160px" className="no-print" value={outcomeView}
+            onChange={(e) => setOutcomeView(e.target.value as 'faculty' | 'student')}
+            color={text} borderColor={border}
+          >
+            <option value="faculty">Faculty</option>
+            <option value="student">Student</option>
+          </Select>
+        </HStack>
+        <Box className="no-print">
+          {outcomeView === 'faculty' ? facultyOutcomesTable : studentOutcomesTable}
+        </Box>
+        {/* When printing, include both tables (the dropdown only shows one) */}
+        <Box display="none" sx={{ '@media print': { display: 'block' } }}>
+          <Text fontWeight="700" fontSize="sm" color={text} mb={1}>Faculty Outcomes</Text>
+          {facultyOutcomesTable}
+          <Text fontWeight="700" fontSize="sm" color={text} mt={4} mb={1}>Student Outcomes</Text>
+          {studentOutcomesTable}
+        </Box>
       </Box>
 
       <Divider borderColor={border} />
 
-      {/* Metric 5 (replacement) — status-update compliance gauge */}
+      {/* Rejected / cancelled / missed — who was behind each one */}
       <Box>
-        <Heading {...sectionTitle}>Faculty Status-Update Compliance (last 7 days)</Heading>
-        <Flex gap={8} align="center" wrap="wrap">
-          <Box flex="0 0 auto" w="100%" maxW="280px"><GaugeChart percent={comp.percent} textColor={text} mutedColor={muted} /></Box>
-          <VStack align="start" spacing={1} flex="1" minW="220px">
-            <Text fontSize="sm" color={text}>
-              Faculty posted a status on <b>{comp.compliantDays}</b> of <b>{comp.expectedDays}</b> expected weekdays
-              ({comp.facultyCount} faculty × {comp.workdays} weekdays).
-            </Text>
-            <Text fontSize="xs" color={muted}>
-              Counts a faculty member as compliant for a day if they posted at least one live status that day.
-            </Text>
-          </VStack>
-        </Flex>
+        <Heading {...sectionTitle}>Rejected, Cancelled &amp; Missed Consultations</Heading>
+        <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={3}>
+          <StatCard label="Rejected" value={outcomes.rejected} accent="#dc2626" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Cancelled by student" value={outcomes.cancelled.byStudent} accent="#94a3b8" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Cancelled by faculty" value={outcomes.cancelled.byFaculty} accent="#64748b" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Cancelled (on leave)" value={outcomes.cancelled.onLeave} accent="#8b5cf6" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Missed by student" value={outcomes.missed.student} accent="#f08a3c" bg={tint} border={border} text={text} muted={muted} />
+          <StatCard label="Missed by faculty" value={outcomes.missed.faculty} accent="#e11d48" bg={tint} border={border} text={text} muted={muted} />
+        </SimpleGrid>
+        <Text fontSize="xs" color={muted} mt={2}>
+          “Missed by student” = the faculty marked a no-show. “Missed by faculty” = an approved consultation that was never completed or marked by the end of its day.
+        </Text>
+
+        <Heading size="xs" color={muted} textTransform="uppercase" mt={6} mb={2}>Missed consultations per week (last 8 weeks)</Heading>
+        <SimpleBarChart data={weeklyMissed} color="#f08a3c" height={130} />
       </Box>
+
+      <Divider borderColor={border} />
+
+      {/* Consultation hours that nobody requested, week by week */}
+      <IdleHoursPanel />
     </VStack>
   );
 }

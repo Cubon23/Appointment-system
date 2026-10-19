@@ -11,7 +11,9 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
+import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -278,7 +280,7 @@ const submitLogEntry = async (aptId: string) => {
     if (!response.ok) throw new Error(data.error);
     fetchLog();
     setCompletionModal({ studentName: apt?.studentName || 'Student', studentSection: apt?.studentSection || '' });
-    // fetchAppointments(); // whatever function currently refreshes myAppointments
+    fetchData();
   } catch (error: any) {
     toast({ title: 'Failed', description: error.message, status: 'error' });
   }
@@ -512,6 +514,49 @@ const saveConsultationHours = async () => {
         title: "Scheduling Conflict Blocked", description: error.message,
         status: "error", duration: 7000, isClosable: true, position: "top", 
       });
+    }
+  };
+
+  // Cancel an approved consultation (asks for a reason the student will see)
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  // 'cancel' = cancel an approved consultation; 'reject' = decline a pending request
+  const [cancelMode, setCancelMode] = useState<'cancel' | 'reject'>('cancel');
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelBusy(true);
+    try {
+      const rejecting = cancelMode === 'reject';
+      const response = await authFetch(
+        `${import.meta.env.VITE_API_URL}/api/faculty/appointment/${cancelTarget._id}${rejecting ? '' : '/cancel'}`,
+        {
+          method: rejecting ? 'PUT' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rejecting ? { status: 'REJECTED', reason: cancelReason } : { reason: cancelReason })
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not cancel the consultation.');
+      toast({ title: cancelMode === 'reject' ? 'Request declined' : 'Consultation cancelled', description: 'The student has been notified.', status: 'success' });
+      setCancelTarget(null);
+      fetchData();
+    } catch (error: any) {
+      toast({ title: 'Could not cancel', description: error.message, status: 'error' });
+    } finally { setCancelBusy(false); }
+  };
+
+  // The student did not turn up to an approved consultation
+  const markNoShow = async (apt: any) => {
+    if (!window.confirm(`Mark ${apt.studentName} as a no-show for this consultation?`)) return;
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${apt._id}/no-show`, { method: 'PATCH' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not mark the no-show.');
+      toast({ title: 'Marked as student no-show', status: 'info' });
+      fetchData();
+    } catch (error: any) {
+      toast({ title: 'Could not update', description: error.message, status: 'error' });
     }
   };
 
@@ -913,6 +958,31 @@ const saveConsultationHours = async () => {
           </Box>
         )}
 
+        {cancelTarget && (
+          <Box
+            position="fixed" top="0" left="0" right="0" bottom="0" bg="rgba(0,0,0,0.45)"
+            display="flex" alignItems="center" justifyContent="center" zIndex={60}
+            onClick={() => !cancelBusy && setCancelTarget(null)}
+          >
+            <Box
+              bg={cardBg} borderRadius="lg" shadow="xl" p={7} w="90%" maxW="420px"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
+              <Heading size="md" color={textColor} mb={1}>{cancelMode === 'reject' ? 'Reject this request?' : 'Cancel this consultation?'}</Heading>
+              <Text color={mutedText} fontSize="sm" mb={4}>
+                {cancelTarget.studentName} — {formatDate(cancelTarget.date)} at {formatTime(cancelTarget.time)}. The student will be notified.
+              </Text>
+              <Box mb={4}>
+                <CancelReasonPicker key={cancelTarget._id + cancelMode} options={FACULTY_CANCEL_REASONS} onChange={setCancelReason} />
+              </Box>
+              <HStack justify="flex-end" spacing={3}>
+                <ChakraButton size="sm" variant="ghost" onClick={() => setCancelTarget(null)} isDisabled={cancelBusy}>Keep it</ChakraButton>
+                <ChakraButton size="sm" colorScheme="red" onClick={confirmCancel} isLoading={cancelBusy} isDisabled={!cancelReason.trim()}>{cancelMode === 'reject' ? 'Reject request' : 'Cancel consultation'}</ChakraButton>
+              </HStack>
+            </Box>
+          </Box>
+        )}
+
         {completionModal && (
           <Box
             position="fixed" top="0" left="0" right="0" bottom="0" bg="rgba(0,0,0,0.45)"
@@ -1012,13 +1082,35 @@ const saveConsultationHours = async () => {
                       <Td fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection})</Td>
                       <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                       <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
-                      <Td><Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'PENDING' ? 'yellow' : 'gray'}>{apt.status}</Badge></Td>
+                      <Td><Badge colorScheme={statusColor(apt.status)}>{statusLabel(apt.status)}</Badge></Td>
                       <Td>
                         {apt.status === 'PENDING' && (
+                          isBeforeCutoff(apt.date, apt.time) ? (
+                            <HStack spacing={2}>
+                              <ChakraButton size="xs" colorScheme="green" onClick={() => updateAppointmentStatus(apt, 'APPROVED')}>Approve</ChakraButton>
+                              <ChakraButton size="xs" colorScheme="red" onClick={() => { setCancelReason(''); setCancelMode('reject'); setCancelTarget(apt); }}>Reject</ChakraButton>
+                            </HStack>
+                          ) : (
+                            <Text fontSize="xs" color={mutedText}>Response window closed (under {CANCEL_CUTOFF_HOURS} hrs).</Text>
+                          )
+                        )}
+                        {apt.status === 'APPROVED' && (
                           <HStack spacing={2}>
-                            <ChakraButton size="xs" colorScheme="green" onClick={() => updateAppointmentStatus(apt, 'APPROVED')}>Approve</ChakraButton>
-                            <ChakraButton size="xs" colorScheme="red" onClick={() => updateAppointmentStatus(apt, 'REJECTED')}>Reject</ChakraButton>
+                            {hasStarted(apt.date, apt.time) && (
+                              <ChakraButton size="xs" colorScheme="orange" variant="outline" onClick={() => markNoShow(apt)}>Student didn't show</ChakraButton>
+                            )}
+                            {isBeforeCutoff(apt.date, apt.time) ? (
+                              <ChakraButton size="xs" colorScheme="red" variant="outline" onClick={() => { setCancelReason(''); setCancelMode('cancel'); setCancelTarget(apt); }}>Cancel</ChakraButton>
+                            ) : !hasStarted(apt.date, apt.time) && (
+                              <Text fontSize="xs" color={mutedText}>Can't cancel within {CANCEL_CUTOFF_HOURS} hrs.</Text>
+                            )}
                           </HStack>
+                        )}
+                        {apt.status === 'MISSED (FACULTY)' && (
+                          <Text fontSize="xs" color={mutedText}>Not signed off — open Consultation Log if it took place.</Text>
+                        )}
+                        {['CANCELLED BY FACULTY', 'CANCELLED BY STUDENT', 'REJECTED'].includes(apt.status) && apt.cancelReason && (
+                          <Text fontSize="xs" color={mutedText}>Reason: {apt.cancelReason}</Text>
                         )}
                       </Td>
                     </Tr>
@@ -1039,11 +1131,11 @@ const saveConsultationHours = async () => {
             {/* Approved consultations awaiting sign-off */}
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" mb={6} className="no-print">
               <Heading size="md" color={textColor} mb={4}>Log consultation details</Heading>
-              {myAppointments.filter(a => a.status === 'APPROVED').length === 0 ? (
+              {myAppointments.filter(a => a.status === 'APPROVED' || a.status === 'MISSED (FACULTY)').length === 0 ? (
                 <Text color={mutedText}>No completed consultations to log.</Text>
-              ) : myAppointments.filter(a => a.status === 'APPROVED').map(apt => (
+              ) : myAppointments.filter(a => a.status === 'APPROVED' || a.status === 'MISSED (FACULTY)').map(apt => (
                 <Box key={apt._id} borderWidth="1px" borderColor={borderColor} borderRadius="md" p={4} mb={3}>
-                  <Text fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection}) — {formatDate(apt.date)} at {formatTime(apt.time)}</Text>
+                  <Text fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection}) — {formatDate(apt.date)} at {formatTime(apt.time)}{apt.status === 'MISSED (FACULTY)' && <Badge ml={2} colorScheme="orange">Counted as missed — log it late if it took place</Badge>}</Text>
                   <Text fontSize="sm" color={mutedText} mb={3}>Student's stated reason: {apt.reason}</Text>
                   <VStack spacing={2} align="stretch">
                     <Textarea size="sm" placeholder="Case Presented" value={logForm[apt._id]?.casePresented || ''}
@@ -1164,4 +1256,4 @@ const saveConsultationHours = async () => {
       </main>
     </div>
   );
-}
+}

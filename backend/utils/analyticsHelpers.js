@@ -25,10 +25,13 @@ function mondayOf(iso) {
 // ── Metric 2: appointment status counts ─────────────────────────────────────
 // rows come from: $group by status → [{ _id: 'PENDING', count: 4 }, ...]
 function summarizeStatuses(rows) {
-  const out = { PENDING: 0, APPROVED: 0, REJECTED: 0, COMPLETED: 0, CANCELLED: 0, OTHER: 0, total: 0 };
+  const out = { PENDING: 0, APPROVED: 0, REJECTED: 0, COMPLETED: 0, CANCELLED: 0, MISSED: 0, OTHER: 0, total: 0 };
   rows.forEach((r) => {
-    const known = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED'].includes(r._id);
-    out[known ? r._id : 'OTHER'] += r.count;
+    // CANCELLED* and MISSED* variants (by student / faculty / on leave) fold into one bucket each
+    const raw = typeof r._id === 'string' ? r._id : '';
+    const key = raw.startsWith('CANCELLED') ? 'CANCELLED' : raw.startsWith('MISSED') ? 'MISSED' : raw;
+    const known = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED', 'CANCELLED', 'MISSED'].includes(key);
+    out[known ? key : 'OTHER'] += r.count;
     out.total += r.count;
   });
   return out;
@@ -95,25 +98,8 @@ function countForRole(roleRows, role) {
   return hit ? hit.count : 0;
 }
 
-// ── Metric 5 (replacement): status-update compliance over the last N days ───
-// Weekdays (Mon–Fri) within the last `span` calendar days, ending today.
-function recentWeekdays(todayIso, span = 7) {
-  const days = [];
-  for (let i = span - 1; i >= 0; i--) {
-    const iso = shiftIso(todayIso, -i);
-    const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
-    if (dow >= 1 && dow <= 5) days.push(iso);
-  }
-  return days;
-}
-
-function complianceStats(compliantDays, facultyCount, weekdays) {
-  const expectedDays = facultyCount * weekdays.length;
-  const percent = expectedDays ? Math.min(100, round1((compliantDays / expectedDays) * 100)) : 0;
-  return { percent, compliantDays, expectedDays, workdays: weekdays.length, facultyCount };
-}
 
 module.exports = {
   shiftIso, summarizeStatuses, collapsePurposes, weekRange, bucketWeekly,
-  sortYearRows, toLabelValues, countForRole, recentWeekdays, complianceStats,
+  sortYearRows, toLabelValues, countForRole,
 };

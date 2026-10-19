@@ -2,13 +2,14 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
-const StatusHistory = require('../models/StatusHistory');
+const ConsultationHours = require('../models/ConsultationHours');
 const { requireAuth } = require('../middleware/auth');
-const { manilaNow, manilaDate } = require('../utils/manilaTime');
+const { manilaNow } = require('../utils/manilaTime');
 const {
   shiftIso, summarizeStatuses, collapsePurposes, weekRange, bucketWeekly,
-  sortYearRows, toLabelValues, countForRole, recentWeekdays, complianceStats,
+  sortYearRows, toLabelValues, countForRole,
 } = require('../utils/analyticsHelpers');
+const { summarizeOutcomes, buildFacultyOutcomes, buildStudentOutcomes, mondayOfIso, addDays, buildIdleHours } = require('../utils/consultationInsights');
 
 const STAFF = ['ADMIN', 'DEAN'];
 const APPOINTMENTS = Appointment.collection.name; // collection name for $lookup (avoids hard-coding "appointments")
@@ -64,21 +65,11 @@ function demographicsPipeline() {
   ];
 }
 
-// ── Metric 2: appointments grouped by status ────────────────────────────────
-// Variants such as "CANCELLED (FACULTY ON LEAVE)" are folded into a single CANCELLED bucket.
+// ── Metric 2: appointments grouped by their exact status ────────────────────
+// summarizeStatuses() folds the CANCELLED*/MISSED* variants for the bar chart, and
+// summarizeOutcomes() keeps them apart (by student / by faculty / on leave) for the outcomes panel.
 const statusPipeline = () => [
-  {
-    $group: {
-      _id: {
-        $cond: [
-          { $regexMatch: { input: { $ifNull: ['$status', ''] }, regex: '^CANCELLED' } },
-          'CANCELLED',
-          '$status',
-        ],
-      },
-      count: { $sum: 1 },
-    },
-  },
+  { $group: { _id: '$status', count: { $sum: 1 } } },
 ];
 
 // ── Metric 3: consultation purposes, with each one's share of the total ─────
@@ -137,27 +128,6 @@ const utilizationPipeline = () => [
   { $sort: { completed: -1, total: -1, name: 1 } },
 ];
 
-// ── Metric 5 (replacement) ──────────────────────────────────────────────────
-// The original spec measured QR check-ins against class schedules, but QR attendance was
-// retired from this system and there is no check-in data. The closest real signal we do have is
-// whether faculty post their live status: for each weekday in the last 7 days, did each active
-// faculty member post at least one status update? (StatusHistory has one row per update.)
-async function statusCompliance(todayIso) {
-  const weekdays = recentWeekdays(todayIso, 7);
-  const faculty = await User.find({ role: 'FACULTY', accountStatus: 'ACTIVE' }).select('_id').lean();
-  const ids = faculty.map((f) => f._id);
-  if (!ids.length || !weekdays.length) return complianceStats(0, ids.length, weekdays);
-
-  const windowStart = manilaDate(shiftIso(todayIso, -6), '00:00');
-  const rows = await StatusHistory.aggregate([
-    { $match: { facultyId: { $in: ids }, timestamp: { $gte: windowStart } } },
-    { $addFields: { day: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp', timezone: 'Asia/Manila' } } } },
-    { $match: { day: { $in: weekdays } } },
-    { $group: { _id: { facultyId: '$facultyId', day: '$day' } } }, // one row per faculty per day
-    { $count: 'compliantDays' },
-  ]);
-  return complianceStats(rows[0] ? rows[0].compliantDays : 0, ids.length, weekdays);
-}
 
 // GET /api/analytics/overview — everything the Reports & Analytics page needs, in one request
 router.get('/overview', requireAuth(STAFF), async (req, res) => {
@@ -165,7 +135,7 @@ router.get('/overview', requireAuth(STAFF), async (req, res) => {
     const today = manilaNow().dateStr;
     const range = weekRange(today, 8);
 
-    const [demoOut, statusRows, purposeRows, utilization, weeklyRows, compliance] = await Promise.all([
+    const [demoOut, statusRows, purposeRows, utilization, weeklyRows, missedWeeklyRows, facultyOutcomeRows, activeFaculty, studentOutcomeRows] = await Promise.all([
       User.aggregate(demographicsPipeline()),
       Appointment.aggregate(statusPipeline()),
       Appointment.aggregate(purposePipeline()),
@@ -174,7 +144,19 @@ router.get('/overview', requireAuth(STAFF), async (req, res) => {
         { $match: { date: { $gte: range.startIso, $lte: range.endIso } } },
         { $group: { _id: '$date', count: { $sum: 1 } } },
       ]),
-      statusCompliance(today),
+      Appointment.aggregate([
+        { $match: { status: { $regex: '^MISSED' }, date: { $gte: range.startIso, $lte: range.endIso } } },
+        { $group: { _id: '$date', count: { $sum: 1 } } },
+      ]),
+      Appointment.aggregate([{ $group: { _id: { f: '$facultyId', s: '$status' }, count: { $sum: 1 } } }]),
+      User.find({ role: 'FACULTY', accountStatus: 'ACTIVE' }).select('name').lean(),
+      // Per student: studentId (older records fall back to the name) + status. name/section only label the row.
+      Appointment.aggregate([{
+        $group: {
+          _id: { s: { $ifNull: ['$studentId', '$studentName'] }, st: '$status' },
+          name: { $last: '$studentName' }, section: { $last: '$studentSection' }, count: { $sum: 1 },
+        },
+      }]),
     ]);
 
     const facets = demoOut[0] || { roles: [], byProgram: [], byYear: [], byGender: [], byFacultyGender: [] };
@@ -193,11 +175,36 @@ router.get('/overview', requireAuth(STAFF), async (req, res) => {
       purposes: collapsePurposes(purposeRows, 6),
       utilization,
       weekly: bucketWeekly(range, weeklyRows),
-      statusCompliance: compliance,
+      outcomes: summarizeOutcomes(statusRows),
+      weeklyMissed: bucketWeekly(range, missedWeeklyRows),
+      facultyOutcomes: buildFacultyOutcomes(facultyOutcomeRows, activeFaculty),
+      studentOutcomes: buildStudentOutcomes(studentOutcomeRows),
     });
   } catch (error) {
     console.error('Analytics error:', error);
     res.status(500).json({ error: 'Could not compute analytics.' });
+  }
+});
+
+// GET /api/analytics/idle-hours?week=YYYY-MM-DD — per-faculty consultation-hour blocks of one
+// Monday–Sunday week and whether any appointment was requested inside each block.
+router.get('/idle-hours', requireAuth(STAFF), async (req, res) => {
+  try {
+    const now = manilaNow();
+    const wanted = /^\d{4}-\d{2}-\d{2}$/.test(req.query.week || '') ? req.query.week : now.dateStr;
+    const weekStart = mondayOfIso(wanted);
+    const weekEnd = addDays(weekStart, 6);
+
+    const [faculty, hours, appointments] = await Promise.all([
+      User.find({ role: 'FACULTY', accountStatus: 'ACTIVE' }).select('name').lean(),
+      ConsultationHours.find({}).select('facultyId dayOfWeek startTime endTime').lean(),
+      Appointment.find({ date: { $gte: weekStart, $lte: weekEnd } }).select('facultyId date time').lean(),
+    ]);
+
+    res.json(buildIdleHours({ faculty, hours, appointments, weekStart, today: now.dateStr, nowHHMM: now.hhmm }));
+  } catch (error) {
+    console.error('Idle-hours error:', error);
+    res.status(500).json({ error: 'Could not compute idle consultation hours.' });
   }
 });
 

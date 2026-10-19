@@ -7,11 +7,14 @@ import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, Select, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
   useColorMode, useColorModeValue,
-  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure
+  Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter, useDisclosure
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import { statusColor, statusLabel, hoursUntil, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
+import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
+import DurationPicker from './DurationPicker';
 
 const PURPOSE_OPTIONS = [
   'Capstone / Thesis Consultation',
@@ -23,6 +26,14 @@ const PURPOSE_OPTIONS = [
   'Submission of Delayed Work / Make-up Requirements',
   'Others',
 ];
+
+// "2026-10-19" -> "Mon, Oct 19" (T00:00:00 keeps it in local time, see dateUtils.ts)
+const formatDatePreview = (val: string) => {
+  if (!val) return '';
+  const d = new Date(`${val}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+};
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -75,6 +86,7 @@ export default function StudentDashboard() {
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [aptDate, setAptDate] = useState('');
   const [aptTime, setAptTime] = useState('');
+  const [aptDuration, setAptDuration] = useState('30');
   const [aptReason, setAptReason] = useState('');
   const [aptPurpose, setAptPurpose] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,19 +173,20 @@ export default function StudentDashboard() {
   // Build a day-by-day list of blocked ("Class Hours") vs bookable ("Consultation Hours")
   // time ranges. Only startTime/endTime/dayOfWeek are read from the source objects.
   const weeklyHoursByDay = React.useMemo(() => {
-    const byDay: Record<number, { label: string; start: string; end: string }[]> = {};
+    const byDay: Record<number, { label: string; kind: 'class' | 'consult'; start: string; end: string }[]> = {};
     for (let i = 0; i < 6; i++) byDay[i] = [];
 
     facultySchedule.forEach((sched: any) => {
       const dayIndex = (sched.dayOfWeek ?? 1) - 1;
       if (dayIndex < 0 || dayIndex > 5) return;
-      byDay[dayIndex].push({ label: 'Class Hours', start: sched.startTime, end: sched.endTime });
+      // Show the subject name only; the room is intentionally not displayed to students.
+      byDay[dayIndex].push({ label: sched.subject || 'Class', kind: 'class', start: sched.startTime, end: sched.endTime });
     });
 
     facultyConsultHours.forEach((block: any) => {
       const dayIndex = (block.dayOfWeek ?? 1) - 1;
       if (dayIndex < 0 || dayIndex > 5) return;
-      byDay[dayIndex].push({ label: 'Consultation Hours', start: block.startTime, end: block.endTime });
+      byDay[dayIndex].push({ label: 'Consultation Hours', kind: 'consult', start: block.startTime, end: block.endTime });
     });
 
     Object.values(byDay).forEach(entries => entries.sort((a, b) => (a.start > b.start ? 1 : -1)));
@@ -209,6 +222,20 @@ export default function StudentDashboard() {
       return;
     }
 
+    if (hoursUntil(aptDate, aptTime) < BOOKING_LEAD_HOURS) {
+      toast({
+        title: 'Too late to request this time',
+        description: `Appointments must be requested at least ${BOOKING_LEAD_HOURS} hours before the requested time.`,
+        status: 'warning',
+      });
+      return;
+    }
+
+    if (!(Number(aptDuration) >= 1 && Number(aptDuration) <= 60)) {
+      toast({ title: 'Choose a duration', description: 'Pick a duration of up to 1 hour.', status: 'warning' });
+      return;
+    }
+
     if (!aptReason.trim()) {
       toast({
         title: 'Purpose of Meeting required',
@@ -225,7 +252,7 @@ export default function StudentDashboard() {
     try {
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
+        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, duration: Number(aptDuration), reason: aptReason })
       });
 
       // 1. We must parse the JSON to read the custom error message from the backend
@@ -246,7 +273,7 @@ export default function StudentDashboard() {
         isClosable: true
       });
       
-      setSelectedFaculty(''); setAptDate(''); setAptTime(''); setAptReason(''); setAptPurpose('');
+      setSelectedFaculty(''); setAptDate(''); setAptTime(''); setAptDuration('30'); setAptReason(''); setAptPurpose('');
       setActivePage('requests'); 
       fetchData(); 
       
@@ -266,17 +293,30 @@ export default function StudentDashboard() {
     setIsSubmitting(false);
   };
 
-  const handleCancelAppointment = async (id: string) => {
+  // Cancelling (pending or approved) asks for a reason first
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+
+  const handleCancelAppointment = async () => {
+    if (!cancelTarget) return;
+    setCancelBusy(true);
     try {
-      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${id}`, {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${cancelTarget._id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'CANCELLED BY STUDENT' })
+        body: JSON.stringify({ status: 'CANCELLED BY STUDENT', reason: cancelReason })
       });
       if (response.ok) {
         toast({ title: `Appointment Cancelled`, status: 'info' });
+        setCancelTarget(null);
         fetchData();
+      } else {
+        const data = await response.json().catch(() => ({}));
+        toast({ title: 'Could not cancel', description: data.error || 'Please try again.', status: 'error' });
       }
-    } catch (error) {}
+    } catch (error) {
+      toast({ title: 'Could not cancel', description: 'Network error. Please try again.', status: 'error' });
+    } finally { setCancelBusy(false); }
   };
 
   return (
@@ -415,6 +455,9 @@ export default function StudentDashboard() {
                       <FormControl isRequired>
                         <FormLabel color={textColor}>Date</FormLabel>
                         <Input type="date" value={aptDate} onChange={(e) => setAptDate(e.target.value)} color={textColor} borderColor={borderColor}/>
+                        {aptDate && (
+                          <Text fontSize="xs" color={mutedText} mt={1}>{formatDatePreview(aptDate)}</Text>
+                        )}
                       </FormControl>
                       <FormControl isRequired>
                         <FormLabel color={textColor}>Time</FormLabel>
@@ -422,8 +465,14 @@ export default function StudentDashboard() {
                         <Input type="time" value={aptTime} onChange={(e) => setAptTime(e.target.value)} min="07:30" max="16:00" color={textColor} borderColor={borderColor}/>
                         {/* Added helper text to guide the student */}
                         <Text fontSize="xs" color={mutedText} mt={1}>7:30 AM - 4:00 PM</Text>
+                        <Text fontSize="xs" color={mutedText}>Request at least {BOOKING_LEAD_HOURS} hrs ahead.</Text>
                       </FormControl>
                     </HStack>
+                    <FormControl isRequired>
+                      <FormLabel color={textColor}>Duration</FormLabel>
+                      <DurationPicker value={aptDuration} onChange={setAptDuration} />
+                      <Text fontSize="xs" color={mutedText} mt={1}>Maximum of 1 hour per consultation.</Text>
+                    </FormControl>
                     <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
                       <Select
                         placeholder="Select a purpose"
@@ -475,7 +524,7 @@ export default function StudentDashboard() {
                           <VStack align="stretch" spacing={1} pl={2}>
                             {weeklyHoursByDay[i].map((entry, idx) => (
                               <HStack key={idx} spacing={2} align="center">
-                                <Badge colorScheme={entry.label === 'Class Hours' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md" flexShrink={0}>
+                                <Badge colorScheme={entry.kind === 'class' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md" flexShrink={0} maxW="60%" whiteSpace="normal">
                                   {entry.label}
                                 </Badge>
                                 <Box flex="1" borderBottom="2px dotted" borderColor={mutedText} opacity={0.6} minW="12px" alignSelf="flex-end" mb="3px" />
@@ -504,11 +553,25 @@ export default function StudentDashboard() {
                         <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                         <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
                         <Td>
-                          <Badge colorScheme={apt.status === 'APPROVED' ? 'green' : apt.status === 'REJECTED' ? 'red' : apt.status === 'PENDING' ? 'yellow' : 'gray'} px={2} py={1} borderRadius="md">{apt.status}</Badge>
+                          <Badge colorScheme={statusColor(apt.status)} px={2} py={1} borderRadius="md">{statusLabel(apt.status)}</Badge>
+                          {['CANCELLED BY FACULTY', 'CANCELLED BY STUDENT', 'REJECTED'].includes(apt.status) && apt.cancelReason && (
+                            <Text fontSize="xs" color={mutedText} mt={1}>Reason: {apt.cancelReason}</Text>
+                          )}
                         </Td>
                         <Td>
                           {apt.status === 'PENDING' && (
-                            <ChakraButton size="xs" colorScheme="gray" variant="outline" onClick={() => handleCancelAppointment(apt._id)}>Cancel Request</ChakraButton>
+                            isBeforeCutoff(apt.date, apt.time) ? (
+                              <ChakraButton size="xs" colorScheme="gray" variant="outline" onClick={() => { setCancelReason(''); setCancelTarget(apt); }}>Cancel Request</ChakraButton>
+                            ) : !hasStarted(apt.date, apt.time) && (
+                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hrs of the requested time.</Text>
+                            )
+                          )}
+                          {apt.status === 'APPROVED' && (
+                            isBeforeCutoff(apt.date, apt.time) ? (
+                              <ChakraButton size="xs" colorScheme="red" variant="outline" onClick={() => { setCancelReason(''); setCancelTarget(apt); }}>Cancel Appointment</ChakraButton>
+                            ) : !hasStarted(apt.date, apt.time) && (
+                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hrs of the appointment.</Text>
+                            )
                           )}
                           {apt.status === 'COMPLETED' && (
                             <ChakraButton size="xs" colorScheme="green" variant="outline" onClick={() => viewAccomplishment(apt)}>View Accomplishment</ChakraButton>
@@ -524,6 +587,30 @@ export default function StudentDashboard() {
           )}
         </div>
       </main>
+
+      {/* Cancel dialog: reason is required (dropdown, or "Others" to type one) */}
+      <Modal isOpen={!!cancelTarget} onClose={() => !cancelBusy && setCancelTarget(null)} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>{cancelTarget?.status === 'APPROVED' ? 'Cancel this appointment?' : 'Cancel this request?'}</ModalHeader>
+          <ModalCloseButton isDisabled={cancelBusy} />
+          <ModalBody>
+            {cancelTarget && (
+              <Text fontSize="sm" mb={4} color={mutedText}>
+                {cancelTarget.facultyId ? cancelTarget.facultyId.name : 'The professor'} — {formatDate(cancelTarget.date)} at {formatTime(cancelTarget.time)}.
+                {cancelTarget.status === 'APPROVED' ? ' The professor already approved this, and will be notified.' : ''}
+              </Text>
+            )}
+            {cancelTarget && (
+              <CancelReasonPicker key={cancelTarget._id} options={STUDENT_CANCEL_REASONS} onChange={setCancelReason} />
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <ChakraButton variant="ghost" mr={3} onClick={() => setCancelTarget(null)} isDisabled={cancelBusy}>Keep it</ChakraButton>
+            <ChakraButton colorScheme="red" onClick={handleCancelAppointment} isLoading={cancelBusy} isDisabled={!cancelReason.trim()}>Confirm cancel</ChakraButton>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       {/* Accomplishment view: read-only summary of a signed-off consultation.
           The student can't edit this — only the faculty member who completed
@@ -567,4 +654,4 @@ export default function StudentDashboard() {
     </div>
 
   );
-}
+}

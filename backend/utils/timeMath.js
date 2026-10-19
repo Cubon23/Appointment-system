@@ -6,13 +6,13 @@ const timeToMinutes = (timeStr) => {
 };
 
 // The Interval Overlap Engine
-const isOverlapping = (newStartStr, existingEvents) => {
+const isOverlapping = (newStartStr, existingEvents, newDuration = 60) => {
   const newStart = timeToMinutes(newStartStr);
-  const newEnd = newStart + 60; // 60-minute blocks
+  const newEnd = newStart + (Number(newDuration) || 60);
 
   return existingEvents.some(event => {
     const existingStart = timeToMinutes(event.startTime || event.time);
-    const existingEnd = event.endTime ? timeToMinutes(event.endTime) : existingStart + 60;
+    const existingEnd = event.endTime ? timeToMinutes(event.endTime) : existingStart + (Number(event.duration) || 60);
     
     // The mathematical absolute for collision detection
     return (newStart < existingEnd) && (existingStart < newEnd);

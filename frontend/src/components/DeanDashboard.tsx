@@ -4,14 +4,13 @@ import { formatDate, formatDateTime } from './dateUtils';
 import {
   Box, Heading, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Text, Button as ChakraButton, HStack, Flex, VStack,
-  useColorMode, SimpleGrid, CircularProgress, CircularProgressLabel
+  useColorMode
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
 import NotificationBell from './NotificationBell';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
-import AttendanceCorrelationPanel from './AttendanceCorrelationPanel';
 
 // === Helper function for time formatting ===
 export const formatTime = (timeStr: string) => {
@@ -31,7 +30,7 @@ export default function DeanDashboard() {
   const userName = localStorage.getItem('userName');
 
   // Unified Page State
-  const [activePage, setActivePage] = useState<'analytics' | 'attendance' | 'broadcast' | 'roster' | 'reports' | 'records'>('analytics');
+  const [activePage, setActivePage] = useState<'broadcast' | 'roster' | 'reports' | 'records'>('reports');
   
   // Custom Navy Sidebar Color palette
   const dk = colorMode === 'dark';
@@ -65,8 +64,8 @@ export default function DeanDashboard() {
 
   useEffect(() => {
     fetchData();
-    // Poll for changes every 30 seconds
-    const intervalId = setInterval(fetchData, 30000);
+    // Poll every 10 seconds so schedule-driven status changes show up promptly
+    const intervalId = setInterval(fetchData, 10000);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -92,16 +91,16 @@ export default function DeanDashboard() {
       <Heading size="sm" mb={6} color="#fff" letterSpacing="tight">Dean's Office</Heading>
       <NotificationBell navText={C.navText} navBg={C.navBg} />
       <VStack align="stretch" spacing={1} flex="1">
-        <button 
-          onClick={() => setActivePage('analytics')}
+        <button
+          onClick={() => setActivePage('reports')}
           style={{
-            background: activePage === 'analytics' ? C.navBg : 'transparent',
-            color: activePage === 'analytics' ? C.navActive : C.navText,
+            background: activePage === 'reports' ? C.navBg : 'transparent',
+            color: activePage === 'reports' ? C.navActive : C.navText,
             border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
-            fontWeight: activePage === 'analytics' ? 600 : 400
+            fontWeight: activePage === 'reports' ? 600 : 400
           }}
         >
-          Department Health
+          Reports & Analytics
         </button>
         <button 
           onClick={() => setActivePage('roster')}
@@ -115,17 +114,6 @@ export default function DeanDashboard() {
           Faculty Roster
         </button>
         <button
-          onClick={() => setActivePage('reports')}
-          style={{
-            background: activePage === 'reports' ? C.navBg : 'transparent',
-            color: activePage === 'reports' ? C.navActive : C.navText,
-            border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
-            fontWeight: activePage === 'reports' ? 600 : 400
-          }}
-        >
-          Reports & Analytics
-        </button>
-        <button
           onClick={() => setActivePage('records')}
           style={{
             background: activePage === 'records' ? C.navBg : 'transparent',
@@ -135,17 +123,6 @@ export default function DeanDashboard() {
           }}
         >
           Consultation Records
-        </button>
-        <button
-          onClick={() => setActivePage('attendance')}
-          style={{
-            background: activePage === 'attendance' ? C.navBg : 'transparent',
-            color: activePage === 'attendance' ? C.navActive : C.navText,
-            border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
-            fontWeight: activePage === 'attendance' ? 600 : 400
-          }}
-        >
-          Attendance Analytics
         </button>
         <button
           onClick={() => setActivePage('broadcast')}
@@ -166,13 +143,6 @@ export default function DeanDashboard() {
       </VStack>
     </Box>
   );
-
-  const compliancePercentage = useMemo(() => {
-    const total = facultyRoster.length;
-    if (total === 0) return 0;
-    const missing = facultyRoster.filter(f => f.statusUpdatedToday === false || f.currentStatus === 'NOT_UPDATED').length;
-    return Math.round(((total - missing) / total) * 100);
-  }, [facultyRoster]);
 
   // Reports & Analytics charts now come from the backend (GET /api/analytics/overview),
   // rendered by <AnalyticsReport />. Consultation Records below still uses `appointments`.
@@ -201,22 +171,6 @@ export default function DeanDashboard() {
           <Heading size="lg" color={C.text} letterSpacing="tight">Dean Dashboard</Heading>
           <Text color={C.textMid}>Welcome, {userName}</Text>
         </Box>
-
-        {activePage === 'analytics' && (
-          <SimpleGrid columns={3} spacing={6}>
-            <Box bg={C.surface} p={6} borderRadius="lg" borderWidth="1px" borderColor={C.border} textAlign="center" shadow="sm">
-              <CircularProgress value={compliancePercentage} color="blue.400" size="120px">
-                <CircularProgressLabel color={C.text}>{compliancePercentage}%</CircularProgressLabel>
-              </CircularProgress>
-              <Text mt={4} color={C.text} fontWeight="600">Daily Compliance Health</Text>
-              <Text fontSize="xs" color={C.textMid}>Faculty updating status on time</Text>
-            </Box>
-            <Box bg={C.surface} p={6} borderRadius="lg" borderWidth="1px" borderColor={C.border} shadow="sm">
-               <Heading size="md" color={C.text} mb={4}>Live Board Analytics</Heading>
-               <Text color={C.textMid} fontSize="sm">System is active. For consultation-pattern analytics and reports, use the "Reports & Analytics" tab. For the detailed status log, use "Faculty Roster."</Text>
-            </Box>
-          </SimpleGrid>
-        )}
 
         {(activePage === 'reports' || activePage === 'records') && (
           // See AdminDashboard.tsx for the same pattern, explained: hides
@@ -335,14 +289,10 @@ export default function DeanDashboard() {
           </Box>
         )}
 
-        {activePage === 'attendance' && (
-          <AttendanceCorrelationPanel C={C} />
-        )}
-
         {activePage === 'broadcast' && (
           <DeanBroadcastPanel C={C} />
         )}
       </Box>
     </Flex>
   );
-}
+}
