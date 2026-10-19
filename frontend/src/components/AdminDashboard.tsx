@@ -8,7 +8,7 @@ import {
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
-import NotificationBell from './NotificationBell';
+import LogoutConfirm from './LogoutConfirm';
 import AnalyticsReport from './AnalyticsReport';
 // import { QRCodeSVG } from 'qrcode.react';
 
@@ -23,6 +23,7 @@ export const formatTime = (timeStr: string) => {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const toast = useToast();
   const userName = localStorage.getItem('userName');
   const { colorMode, toggleColorMode } = useColorMode();
@@ -31,6 +32,7 @@ export default function AdminDashboard() {
   const [activePage, setActivePage] = useState('home');
   const [facultyList, setFacultyList] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [userTab, setUserTab] = useState<'faculty' | 'students'>('faculty');
   const [facultySearch, setFacultySearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [filterProgram, setFilterProgram] = useState('');
@@ -207,15 +209,12 @@ export default function AdminDashboard() {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
-        <NotificationBell navText={C.navText} navBg={C.navBg} />
-
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[
             { page: "home", label: "Provisioning" },
-            { page: "faculty", label: "Faculty Management" },
             { page: "appointments", label: `Appointments (${appointments.filter(a => a.status === 'PENDING').length})` },
             { page: "verification", label: "Verification Queue" },
-            { page: "students", label: "Student Management" },
+            { page: "users", label: "User Management" },
             { page: "analytics", label: "Reports & Analytics" },
             { page: "records", label: "Consultation Records" }
           ].map(({ page, label }) => {
@@ -238,7 +237,8 @@ export default function AdminDashboard() {
         <button onClick={toggleColorMode} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", border: `1px solid ${dk ? "#1e3048" : "rgba(255,255,255,0.12)"}`, background: "transparent", color: C.navText, fontSize: "12px", textAlign: "left", display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
           <span>{dk ? "☀" : "☾"}</span> {dk ? "Light Mode" : "Dark Mode"}
         </button>
-        <button onClick={() => { localStorage.clear(); navigate('/'); }} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <button onClick={() => setLogoutOpen(true)} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
       {/* ── Main Content ── */}
@@ -246,10 +246,9 @@ export default function AdminDashboard() {
         <Box mb={8}>
           <Heading size="lg" color={textColor} letterSpacing="tight">
             {activePage === 'home' && "System Provisioning"}
-            {activePage === 'faculty' && "Faculty Roster & Live Status"}
+            {activePage === 'users' && "User Management"}
             {activePage === 'appointments' && "Appointment Management"}
             {activePage === 'verification' && "Account Verification Queue"}
-            {activePage === 'students' && "Student Management"}
             {activePage === 'analytics' && "Reports & Analytics"}
             {activePage === 'records' && "Consultation Records"}
           </Heading>
@@ -333,7 +332,18 @@ export default function AdminDashboard() {
           </Box>
         )}
 
-        {activePage === 'faculty' && (
+        {activePage === 'users' && (
+          <HStack spacing={2} mb={4}>
+            <ChakraButton size="sm" colorScheme="blue" variant={userTab === 'faculty' ? 'solid' : 'outline'} onClick={() => setUserTab('faculty')}>
+              Faculty ({allUsers.filter(u => u.role === 'FACULTY').length || facultyList.length})
+            </ChakraButton>
+            <ChakraButton size="sm" colorScheme="blue" variant={userTab === 'students' ? 'solid' : 'outline'} onClick={() => setUserTab('students')}>
+              Students ({allUsers.filter(u => u.role === 'STUDENT').length})
+            </ChakraButton>
+          </HStack>
+        )}
+
+        {activePage === 'users' && userTab === 'faculty' && (
           <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
             <Input
               placeholder="Search by name or position..."
@@ -382,7 +392,7 @@ export default function AdminDashboard() {
           </Box>
         )}
         
-        {activePage === 'students' && (
+        {activePage === 'users' && userTab === 'students' && (
           <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
             <HStack spacing={3} mb={4}>
               <Select
@@ -496,7 +506,6 @@ export default function AdminDashboard() {
                 <Tr>
                   <Th color={mutedText}>Date Signed Off</Th>
                   <Th color={mutedText}>Student</Th>
-                  <Th color={mutedText}>Gender</Th>
                   <Th color={mutedText}>Faculty</Th>
                   <Th color={mutedText}>Case Presented</Th>
                   <Th color={mutedText}>Intervention Taken</Th>
@@ -505,13 +514,12 @@ export default function AdminDashboard() {
               </Thead>
               <Tbody>
                 {filteredRecords.length === 0 && (
-                  <Tr><Td colSpan={7}><Text color={mutedText} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
+                  <Tr><Td colSpan={6}><Text color={mutedText} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
                 )}
                 {filteredRecords.map(r => (
                   <Tr key={r._id}>
                     <Td color={textColor}>{r.completedAt ? formatDate(r.completedAt) : ''}</Td>
                     <Td fontWeight="bold" color={textColor}>{r.studentName} ({r.studentSection})</Td>
-                    <Td color={textColor}>{r.studentGender || '—'}</Td>
                     <Td color={textColor}>{r.facultyId?.name || 'Unknown'}</Td>
                     <Td maxW="200px" color={textColor}>{r.casePresented}</Td>
                     <Td maxW="200px" color={textColor}>{r.interventionTaken}</Td>

@@ -7,6 +7,7 @@ import {
   useColorMode, SimpleGrid, CircularProgress, CircularProgressLabel
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
+import LogoutConfirm from './LogoutConfirm';
 import NotificationBell from './NotificationBell';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
@@ -24,6 +25,7 @@ export const formatTime = (timeStr: string) => {
 
 export default function DeanDashboard() {
   const navigate = useNavigate();
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const { colorMode, toggleColorMode } = useColorMode();
 
   const userName = localStorage.getItem('userName');
@@ -159,7 +161,8 @@ export default function DeanDashboard() {
       </VStack>
       <VStack spacing={4} mt="auto">
         <ChakraButton size="sm" variant="outline" color={C.navText} borderColor="gray.600" w="100%" onClick={toggleColorMode}>{colorMode === 'light' ? 'Dark Mode' : 'Light Mode'}</ChakraButton>
-        <ChakraButton size="sm" colorScheme="red" w="100%" onClick={() => { localStorage.clear(); navigate('/'); }}>Logout</ChakraButton>
+        <ChakraButton size="sm" colorScheme="red" w="100%" onClick={() => setLogoutOpen(true)}>Logout</ChakraButton>
+        <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </VStack>
     </Box>
   );
@@ -265,7 +268,6 @@ export default function DeanDashboard() {
                   <Tr>
                     <Th color={C.textMid}>Date Signed Off</Th>
                     <Th color={C.textMid}>Student</Th>
-                    <Th color={C.textMid}>Gender</Th>
                     <Th color={C.textMid}>Faculty</Th>
                     <Th color={C.textMid}>Case Presented</Th>
                     <Th color={C.textMid}>Intervention Taken</Th>
@@ -274,13 +276,12 @@ export default function DeanDashboard() {
                 </Thead>
                 <Tbody>
                   {filteredRecords.length === 0 && (
-                    <Tr><Td colSpan={7}><Text color={C.textMid} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
+                    <Tr><Td colSpan={6}><Text color={C.textMid} py={4} textAlign="center">No completed consultations found.</Text></Td></Tr>
                   )}
                   {filteredRecords.map((r: any) => (
                     <Tr key={r._id}>
                       <Td color={C.text}>{r.completedAt ? formatDate(r.completedAt) : ''}</Td>
                       <Td fontWeight="bold" color={C.text}>{r.studentName} ({r.studentSection})</Td>
-                      <Td color={C.text}>{r.studentGender || '—'}</Td>
                       <Td color={C.text}>{r.facultyId?.name || 'Unknown'}</Td>
                       <Td maxW="200px" color={C.text}>{r.casePresented}</Td>
                       <Td maxW="200px" color={C.text}>{r.interventionTaken}</Td>

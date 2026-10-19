@@ -10,6 +10,7 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
+import LogoutConfirm from './LogoutConfirm';
 import NotificationBell from './NotificationBell';
 
 const PURPOSE_OPTIONS = [
@@ -57,6 +58,7 @@ const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const toast = useToast();
   const userName = localStorage.getItem('userName') || 'Student';
   const userId = localStorage.getItem('userId') || '';
@@ -65,7 +67,6 @@ export default function StudentDashboard() {
   const [activePage, setActivePage] = useState('home');
   const [faculty, setFaculty] = useState<any[]>([]);
   const [studentSection] = useState(localStorage.getItem('programPosition') || '');
-  const [studentGender, setStudentGender] = useState(localStorage.getItem('studentGender') || '');
 
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [facultySearch, setFacultySearch] = useState('');
@@ -224,7 +225,7 @@ export default function StudentDashboard() {
     try {
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName: userName, studentSection, studentGender, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
+        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, reason: aptReason })
       });
 
       // 1. We must parse the JSON to read the custom error message from the backend
@@ -315,7 +316,8 @@ export default function StudentDashboard() {
         <button onClick={toggleColorMode} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", border: `1px solid ${dk ? "#1e3048" : "rgba(255,255,255,0.12)"}`, background: "transparent", color: C.navText, fontSize: "12px", textAlign: "left", display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
           <span>{dk ? "☀" : "☾"}</span> {dk ? "Light Mode" : "Dark Mode"}
         </button>
-        <button onClick={() => { localStorage.clear(); navigate('/'); }} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <button onClick={() => setLogoutOpen(true)} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
       {/* ── Main Content ── */}
@@ -373,19 +375,6 @@ export default function StudentDashboard() {
                       <FormLabel color={textColor}>Your Section</FormLabel>
                       <Input value={studentSection} isReadOnly color={textColor} borderColor={borderColor} bg={useColorModeValue('gray.50', 'whiteAlpha.100')} cursor="not-allowed" />
                       <Text fontSize="xs" color={mutedText} mt={1}>From your account registration. Contact an admin if this is wrong.</Text>
-                    </FormControl>
-                    <FormControl isRequired>
-                      <FormLabel color={textColor}>Gender</FormLabel>
-                      <Select
-                        value={studentGender}
-                        onChange={(e) => { setStudentGender(e.target.value); localStorage.setItem('studentGender', e.target.value); }}
-                        placeholder="Select gender"
-                        color={textColor}
-                        borderColor={borderColor}
-                      >
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                      </Select>
                     </FormControl>
                     <FormControl isRequired>
                       <FormLabel color={textColor}>Select Professor</FormLabel>

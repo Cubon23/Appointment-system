@@ -10,6 +10,7 @@ import {
   FormLabel, Flex, VStack, Textarea, useColorMode, useColorModeValue
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
+import LogoutConfirm from './LogoutConfirm';
 import NotificationBell from './NotificationBell';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +128,7 @@ function getEventPos(event: ScheduleEvent): { top: number; height: number } {
 
 export default function FacultyDashboard() {
   const navigate = useNavigate();
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const toast = useToast();
   const { colorMode, toggleColorMode } = useColorMode();
   
@@ -198,7 +200,7 @@ export default function FacultyDashboard() {
   // walk-in consultations the faculty logs by hand. Edits here only affect
   // the on-screen/exported copy of the form — they are NOT saved back to the
   // appointment records in the database.
-  type FormRowField = 'studentName' | 'studentSection' | 'studentGender' | 'date' | 'casePresented' | 'interventionTaken' | 'remarks';
+  type FormRowField = 'studentName' | 'studentSection' | 'date' | 'casePresented' | 'interventionTaken' | 'remarks';
   const [formEdits, setFormEdits] = useState<{ [rowIndex: number]: Partial<Record<FormRowField, string>> }>({});
   const editFormCell = (rowIndex: number, field: FormRowField, value: string) => {
     setFormEdits(prev => ({ ...prev, [rowIndex]: { ...prev[rowIndex], [field]: value } }));
@@ -674,11 +676,12 @@ const saveConsultationHours = async () => {
         </button>
 
         <button 
-          onClick={() => { localStorage.clear(); navigate('/'); }}
+          onClick={() => setLogoutOpen(true)}
           style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}
         >
           Logout
         </button>
+        <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
       {/* ═══════════════════════════════════════════════════════════════════
@@ -1069,7 +1072,6 @@ const saveConsultationHours = async () => {
                     const v = (field: FormRowField) => formCellValue(formEdits, i, field, entry);
                     return `<tr>
                       <td style="border:1px solid black;padding:4px;">${i + 1}. ${v('studentName')}</td>
-                      <td style="border:1px solid black;padding:4px;">${v('studentGender')}</td>
                       <td style="border:1px solid black;padding:4px;">${v('studentSection')}</td>
                       <td style="border:1px solid black;padding:4px;">${v('date')}</td>
                       <td style="border:1px solid black;padding:4px;">${v('casePresented')}</td>
@@ -1080,7 +1082,6 @@ const saveConsultationHours = async () => {
                   const tableHtml = `<table style="width:100%; border-collapse:collapse; font-size:11px;">
                     <thead><tr style="background:#4a5568;color:white;">
                       <th style="border:1px solid black;padding:4px;">Name of Student/Advisee</th>
-                      <th style="border:1px solid black;padding:4px;">Gender</th>
                       <th style="border:1px solid black;padding:4px;">Course and Year</th>
                       <th style="border:1px solid black;padding:4px;">Date</th>
                       <th style="border:1px solid black;padding:4px;">Case Presented</th>
@@ -1114,7 +1115,6 @@ const saveConsultationHours = async () => {
                 <Thead bg="gray.600">
                   <Tr>
                     <Th color="white" border="1px solid black">Name of Student/Advisee</Th>
-                    <Th color="white" border="1px solid black">Gender</Th>
                     <Th color="white" border="1px solid black">Course and Year</Th>
                     <Th color="white" border="1px solid black">Date</Th>
                     <Th color="white" border="1px solid black">Case Presented</Th>
@@ -1143,7 +1143,6 @@ const saveConsultationHours = async () => {
                             {cellInput('studentName')}
                           </HStack>
                         </Td>
-                        <Td border="1px solid black" p={1}>{cellInput('studentGender')}</Td>
                         <Td border="1px solid black" p={1}>{cellInput('studentSection')}</Td>
                         <Td border="1px solid black" p={1}>{cellInput('date')}</Td>
                         <Td border="1px solid black" p={1}>{cellInput('casePresented')}</Td>

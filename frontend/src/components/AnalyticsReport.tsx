@@ -13,7 +13,7 @@ import SimpleBarChart from './SimpleBarChart';
 interface LabelValue { label: string; value: number }
 interface Overview {
   generatedAt: string;
-  demographics: { totalStudents: number; totalFaculty: number; byProgram: LabelValue[]; byYear: LabelValue[]; byGender: LabelValue[] };
+  demographics: { totalStudents: number; totalFaculty: number; byProgram: LabelValue[]; byYear: LabelValue[]; byGender: LabelValue[]; byFacultyGender: LabelValue[] };
   statusSummary: { PENDING: number; APPROVED: number; REJECTED: number; COMPLETED: number; CANCELLED: number; total: number };
   purposes: { total: number; items: { label: string; count: number; percent: number }[] };
   utilization: { facultyId: string; name: string; programPosition?: string; completed: number; total: number }[];
@@ -134,7 +134,8 @@ export default function AnalyticsReport() {
   const demoSeries = [
     { title: 'By Program', data: demo.byProgram, color: '#2563eb' },
     { title: 'By Year Level', data: demo.byYear, color: '#16a34a' },
-    { title: 'By Gender', data: demo.byGender, color: '#8b5cf6' },
+    { title: 'Student Gender', data: demo.byGender, color: '#8b5cf6' },
+    { title: 'Faculty Gender', data: demo.byFacultyGender, color: '#e11d48' },
   ];
   const maxCompleted = Math.max(1, ...utilization.map(u => u.completed));
   const sectionTitle = { size: 'sm', color: muted, textTransform: 'uppercase' as const, mb: 4 };
@@ -198,9 +199,9 @@ export default function AnalyticsReport() {
           ))}
         </Box>
 
-        {demo.byGender.length > 0 && (
+        {[...demo.byGender, ...demo.byFacultyGender].some(g => g.label === 'Not provided') && (
           <Text fontSize="xs" color={muted} mt={2}>
-            Gender is only known for students who shared it when booking a consultation.
+            Accounts showing Not provided were created before gender was collected at registration.
           </Text>
         )}
       </Box>

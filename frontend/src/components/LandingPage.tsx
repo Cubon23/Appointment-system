@@ -162,6 +162,9 @@ export default function LandingPage() {
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Login State
+  // The fields already show "@gmail.com" on the right, so keep only the part before any "@"
+  // (if someone types or pastes a full address, the domain is dropped instead of doubled).
+  const cleanEmailName = (v: string) => v.replace(/@.*$/, '').replace(/\s/g, '');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -177,6 +180,7 @@ export default function LandingPage() {
   // Registration State
   const [regName, setRegName] = useState('');
   const [nameSuffix, setNameSuffix] = useState(''); // NEW: Tracks Jr., Sr., etc.
+  const [regGender, setRegGender] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [showRegPw, setShowRegPw] = useState(false);
@@ -376,7 +380,8 @@ export default function LandingPage() {
           programPosition: finalProgramPosition,
           schoolId: regRole === 'STUDENT' ? schoolId : undefined,
           facultyId: regRole === 'FACULTY' ? facultyId : undefined,
-          privacyAccepted: acceptedPrivacy
+          privacyAccepted: acceptedPrivacy,
+          gender: regGender
         })
       });
 
@@ -399,6 +404,7 @@ export default function LandingPage() {
       setSelYear('');
       setSelSection('');
       setFacultyPosition('');
+      setRegGender('');
       setAcceptedPrivacy(false);
     }catch (error) {
       toast({ 
@@ -428,7 +434,7 @@ export default function LandingPage() {
                         <Input
                           placeholder="e.g. jdelacruz"
                           value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
+                          onChange={(e) => setLoginEmail(cleanEmailName(e.target.value))}
                         />
                         <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
                           @gmail.com
@@ -519,6 +525,15 @@ export default function LandingPage() {
           </FormControl>
         </HStack>
 
+        {/* GENDER — asked once here (students and faculty), no longer on appointments */}
+        <FormControl isRequired>
+          <FormLabel>Gender</FormLabel>
+          <Select placeholder="Select gender" value={regGender} onChange={(e) => setRegGender(e.target.value)}>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </Select>
+        </FormControl>
+
         {/* 3. DYNAMIC FORM FIELDS (ACADEMIC IDENTITY) */}
         {regRole === 'STUDENT' ? (
           <>
@@ -608,7 +623,7 @@ export default function LandingPage() {
             <Input
               placeholder="e.g. jdelacruz"
               value={regEmail}
-              onChange={(e) => setRegEmail(e.target.value)}
+              onChange={(e) => setRegEmail(cleanEmailName(e.target.value))}
             />
             <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
               @gmail.com
@@ -927,7 +942,7 @@ export default function LandingPage() {
               <Box>
                 <Text fontWeight="700" mb={1}>1. Information we collect</Text>
                 <VStack align="stretch" spacing={1} pl={3}>
-                  <Text>• Account details: full name, Gmail address, role (student or faculty), and your password (stored only in encrypted form).</Text>
+                  <Text>• Account details: full name, gender, Gmail address, role (student or faculty), and your password (stored only in encrypted form).</Text>
                   <Text>• School identity: School ID or Faculty ID, and your program, year, and section (students) or position (faculty).</Text>
                   <Text>• Consultation records: appointment requests (date, time, purpose), and for completed consultations, the case presented, action taken, and remarks.</Text>
                   <Text>• Faculty availability: class schedules, consultation hours, live status and location, and personal calendar notes.</Text>
@@ -940,7 +955,8 @@ export default function LandingPage() {
                 <Text>
                   To verify your identity, let students book consultations with faculty, record consultations
                   that took place, show faculty availability, send reminders and notices, and produce the
-                  consultation reports the college requires.
+                  consultation reports the college requires. Gender is used only for summary statistics
+                  (such as how many students or faculty are male or female) in those reports.
                 </Text>
               </Box>
 
@@ -1016,7 +1032,7 @@ export default function LandingPage() {
                   <Input
                     placeholder="e.g. jdelacruz"
                     value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
+                    onChange={(e) => setForgotEmail(cleanEmailName(e.target.value))}
                   />
                   <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
                     @gmail.com

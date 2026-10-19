@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
     required: true 
   },
   name: { type: String, required: true },
+  gender: { type: String, enum: ['Male', 'Female'] }, // collected at registration; accounts created earlier won't have it
   email: { type: String, required: true, unique: true },
   
   // === NEW: Authentication & Security Fields ===

@@ -37,6 +37,13 @@ const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
+
+// Exactly one "@", a plain local part, and the gmail.com domain.
+// (Rejects "name@gmail.com@gmail.com", which happens when someone types the full
+// address into a field that already appends "@gmail.com".)
+const GMAIL_REGEX = /^[a-z0-9._+-]+@gmail\.com$/;
+// Generic shape check for admin-provisioned accounts (any domain, but still a single "@").
+const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const Broadcast = require('../models/Broadcast');
 const { computeAttendanceStats, monthRange, phToday, phParts } = require('../utils/attendanceStats');
 
@@ -61,11 +68,16 @@ const timeToMinutes = (time) => {
 // === 1. SECURE REGISTRATION ROUTE (With Bcrypt) ===
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, programPosition, schoolId, facultyId, privacyAccepted } = req.body;
+    const { name, email, password, role, programPosition, schoolId, facultyId, privacyAccepted, gender } = req.body;
 
     // Consent must be explicit, and is enforced here too — not just by the checkbox in the browser.
     if (privacyAccepted !== true) {
       return res.status(400).json({ error: 'You must accept the Privacy Policy to register.' });
+    }
+
+    // Gender is collected once, here (students and faculty), instead of on every appointment.
+    if (!['Male', 'Female'].includes(gender)) {
+      return res.status(400).json({ error: 'Please select your gender.' });
     }
 
     // Originally this required @ua.edu.ph specifically. The school never actually
@@ -77,11 +89,11 @@ router.post('/register', async (req, res) => {
     // deliverable (so the verify-email and forgot-password links reliably arrive).
     // Identity itself is still established by Admin's manual ID verification
     // (PENDING_APPROVAL -> Verification Queue), not by the email domain.
-    if (!email || !email.toLowerCase().endsWith('@gmail.com')) {
+    if (typeof email !== 'string' || !GMAIL_REGEX.test(email.trim().toLowerCase())) {
       return res.status(400).json({ error: 'Please register with a Gmail address (e.g. yourname@gmail.com).' });
     }
 
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
     if (existingUser) {
       return res.status(400).json({ error: 'An account with this email already exists.' });
     }
@@ -113,7 +125,8 @@ router.post('/register', async (req, res) => {
 
     const newUser = await User.create({
       name,
-      email: email.toLowerCase(),
+      gender,
+      email: email.trim().toLowerCase(),
       password: hashedPassword, // Secured.
       role,
       programPosition,
@@ -353,8 +366,12 @@ router.post('/schedule/add', requireAuth(STAFF), async (req, res) => {
 
 // 5. POST ROUTE: Admin adds a new faculty member (QR Generation)
 router.post('/add', requireAuth(STAFF), async (req, res) => {
-  const { name, email, programPosition, room, role, schoolId, facultyId } = req.body;
+  const { name, programPosition, room, role, schoolId, facultyId } = req.body;
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   try {
+    if (!EMAIL_REGEX.test(email)) {
+      return res.status(400).json({ error: 'Please enter a valid email address (a single "@", e.g. name@gmail.com).' });
+    }
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: 'Email already exists' });
@@ -393,7 +410,7 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
 // 8. POST ROUTE: Student requests an appointment
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
-    const { facultyId, date, time, studentName, studentSection, studentGender, reason } = req.body;
+    const { facultyId, date, time, studentName, studentSection, reason } = req.body;
     
     const studentId = req.user.userId; // from the verified login token, not the request body
 
@@ -466,7 +483,6 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
       studentId,
       studentName,
       studentSection,
-      studentGender: studentGender || '',
       date,
       time,
       reason,

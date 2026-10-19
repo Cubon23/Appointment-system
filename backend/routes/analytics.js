@@ -17,6 +17,9 @@ const APPOINTMENTS = Appointment.collection.name; // collection name for $lookup
 // This regex splits it: capture 1 = program ("BS INFO"), capture 2 = year ("4"), capture 3 = section ("D").
 const PROGRAM_REGEX = '^(.+?)\\s+(\\d)([A-Za-z])$';
 
+// Maps a user's gender to "Male"/"Female", or "Not provided" when missing (older accounts).
+const GENDER_OR_NOT_PROVIDED = { $cond: [{ $in: ['$gender', ['Male', 'Female']] }, '$gender', 'Not provided'] };
+
 // ── Metric 1: user demographics — ONE aggregation with $facet ───────────────
 // Every facet runs over the same filtered set of users in a single database call.
 function demographicsPipeline() {
@@ -43,24 +46,17 @@ function demographicsPipeline() {
           { $group: { _id: captured(1, 'Unspecified'), count: { $sum: 1 } } },
         ],
 
-        // Gender is not collected at registration. It is only recorded (optionally) when a student
-        // books a consultation, so we take each student's most recent answer from their appointments.
+        // Gender comes from registration (User.gender). Accounts created before it was collected
+        // have none and are counted as "Not provided".
         byGender: [
           { $match: { role: 'STUDENT' } },
-          {
-            $lookup: {
-              from: APPOINTMENTS,
-              let: { sid: '$_id' },
-              pipeline: [
-                { $match: { $expr: { $eq: ['$studentId', '$$sid'] }, studentGender: { $in: ['Male', 'Female'] } } },
-                { $sort: { createdAt: -1 } },
-                { $limit: 1 },
-                { $project: { _id: 0, gender: '$studentGender' } },
-              ],
-              as: 'latest',
-            },
-          },
-          { $group: { _id: { $ifNull: [{ $arrayElemAt: ['$latest.gender', 0] }, 'Not provided'] }, count: { $sum: 1 } } },
+          { $group: { _id: GENDER_OR_NOT_PROVIDED, count: { $sum: 1 } } },
+          { $sort: { count: -1, _id: 1 } },
+        ],
+
+        byFacultyGender: [
+          { $match: { role: 'FACULTY' } },
+          { $group: { _id: GENDER_OR_NOT_PROVIDED, count: { $sum: 1 } } },
           { $sort: { count: -1, _id: 1 } },
         ],
       },
@@ -181,7 +177,7 @@ router.get('/overview', requireAuth(STAFF), async (req, res) => {
       statusCompliance(today),
     ]);
 
-    const facets = demoOut[0] || { roles: [], byProgram: [], byYear: [], byGender: [] };
+    const facets = demoOut[0] || { roles: [], byProgram: [], byYear: [], byGender: [], byFacultyGender: [] };
 
     res.json({
       generatedAt: new Date().toISOString(),
@@ -191,6 +187,7 @@ router.get('/overview', requireAuth(STAFF), async (req, res) => {
         byProgram: toLabelValues(facets.byProgram),
         byYear: sortYearRows(facets.byYear),
         byGender: toLabelValues(facets.byGender),
+        byFacultyGender: toLabelValues(facets.byFacultyGender),
       },
       statusSummary: summarizeStatuses(statusRows),
       purposes: collapsePurposes(purposeRows, 6),
