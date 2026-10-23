@@ -65,7 +65,11 @@ facultyId: {
   // MODIFIED: Removed 'required: true' so users can register without crashing the DB
   qrHash: { type: String, unique: true, sparse: true }, 
   
-  programPosition: { type: String, required: true }, 
+  // Required once the user has finished onboarding. Accounts created by Google sign-in start
+  // without it and are asked for it on first login (see routes/auth.js -> /onboarding).
+  programPosition: { type: String, required: function () { return this.onboardingComplete !== false; } },
+  onboardingComplete: { type: Boolean, default: true }, // existing accounts are already complete
+  googleSub: { type: String, unique: true, sparse: true }, // Google's stable account id
   room: { type: String }, 
   currentStatus: {
       type: String,
