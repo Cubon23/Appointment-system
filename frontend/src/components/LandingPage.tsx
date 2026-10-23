@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { cohortConfig } from '../data/cohortConfig';
 import { ViewIcon, ViewOffIcon, EmailIcon, PhoneIcon, CalendarIcon, CheckCircleIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
+import GoogleSignInButton from './GoogleSignInButton';
+import OnboardingModal from './OnboardingModal';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast,
   FormControl, FormLabel, Select, useColorModeValue, Tabs, TabList, TabPanels, Tab, TabPanel,
@@ -168,6 +170,7 @@ export default function LandingPage() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [onboarding, setOnboarding] = useState<{ token: string; role: string; name: string } | null>(null);
   const [showLoginPw, setShowLoginPw] = useState(false);
 
   // Forgot Password modal state
@@ -242,6 +245,53 @@ export default function LandingPage() {
     }
   };
 
+  // Shared by password login and Google sign-in: store the session and go to the right dashboard.
+  const finishLogin = (data: any) => {
+    // Save secure data to local storage
+    localStorage.setItem('userId', data._id);
+    localStorage.setItem('userName', data.name);
+    localStorage.setItem('userRole', data.role);
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('programPosition', data.programPosition || '');
+
+    toast({ title: 'Login Successful', status: 'success', duration: 2000 });
+
+    // QR Attendance
+    const intendedRoute = sessionStorage.getItem('intendedRoute');
+    
+    if (intendedRoute && data.role === 'STUDENT') {
+      sessionStorage.removeItem('intendedRoute'); // Clear it so it doesn't fire again later
+      navigate(intendedRoute);
+      return;
+    }
+
+    // Default Navigation based on role
+    if (data.role === 'STUDENT') navigate('/student-dashboard');
+    else if (data.role === 'FACULTY') navigate('/faculty-dashboard');
+    else if (data.role === 'ADMIN') navigate('/admin-dashboard');
+    else if (data.role === 'DEAN') navigate('/dean-dashboard');
+  };
+
+  // Google sign-in: the server verifies the token and checks the school domain.
+  const handleGoogleCredential = async (credential: string) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      if (data.onboardingComplete === false) {
+        setOnboarding({ token: data.token, role: data.role, name: data.email });
+        return;
+      }
+      finishLogin(data);
+    } catch (error: any) {
+      toast({ title: 'Sign-in failed', description: error.message, status: 'error', position: 'top' });
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoggingIn(true);
@@ -259,29 +309,7 @@ export default function LandingPage() {
 
       if (!response.ok) throw new Error(data.error);
 
-      // Save secure data to local storage
-      localStorage.setItem('userId', data._id);
-      localStorage.setItem('userName', data.name);
-      localStorage.setItem('userRole', data.role);
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('programPosition', data.programPosition || '');
-
-      toast({ title: 'Login Successful', status: 'success', duration: 2000 });
-
-      // QR Attendance
-      const intendedRoute = sessionStorage.getItem('intendedRoute');
-      
-      if (intendedRoute && data.role === 'STUDENT') {
-        sessionStorage.removeItem('intendedRoute'); // Clear it so it doesn't fire again later
-        navigate(intendedRoute);
-        return;
-      }
-
-      // Default Navigation based on role
-      if (data.role === 'STUDENT') navigate('/student-dashboard');
-      else if (data.role === 'FACULTY') navigate('/faculty-dashboard');
-      else if (data.role === 'ADMIN') navigate('/admin-dashboard');
-      else if (data.role === 'DEAN') navigate('/dean-dashboard');
+      finishLogin(data);
 
     } catch (error: any) {
       toast({ title: 'Authentication Failed', description: error.message, status: 'error', position: 'top' });
@@ -469,6 +497,10 @@ export default function LandingPage() {
               
               {/* LOGIN PANEL */}
               <TabPanel p={8}>
+                <VStack spacing={3} mb={6}>
+                  <GoogleSignInButton onCredential={handleGoogleCredential} />
+                  <Text fontSize="xs" color="gray.500">Use your school Google account</Text>
+                </VStack>
                 <form onSubmit={handleLogin}>
                   <VStack spacing={5}>
                     <FormControl isRequired>
@@ -994,6 +1026,14 @@ export default function LandingPage() {
       </Modal>
 
       {/* ================= PRIVACY POLICY MODAL ================= */}
+      <OnboardingModal
+        isOpen={!!onboarding}
+        role={onboarding?.role || ''}
+        initialName={onboarding?.name || ''}
+        token={onboarding?.token || ''}
+        onOpenPrivacy={onPrivacyOpen}
+        onDone={(data) => { setOnboarding(null); finishLogin(data); }}
+      />
       <Modal isOpen={isPrivacyOpen} onClose={onPrivacyClose} size="xl" isCentered scrollBehavior="inside">
         <ModalOverlay backdropFilter="blur(4px)" />
         <ModalContent borderRadius="2xl" bg={modalBg}>
