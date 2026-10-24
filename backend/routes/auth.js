@@ -6,6 +6,7 @@ const User = require('../models/User');
 const RosterEntry = require('../models/RosterEntry');
 const { requireAuth } = require('../middleware/auth');
 const { decideSignIn, parseList } = require('../utils/signInPolicy');
+const { validateId } = require('../utils/idValidator');
 
 const router = express.Router();
 
@@ -83,43 +84,39 @@ router.post('/google', googleLimiter, async (req, res) => {
   }
 });
 
-const STUDENT_ID = /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/;
-const FACULTY_ID = /^UA-[A-Z]{5}-\d{4}-\d{4}$/;
-
-// POST /api/auth/onboarding  — first-login details Google can't supply.
+// POST /api/auth/onboarding  — first-login details Google can't supply. The ID is mandatory.
+// The role comes from the server (roster / ADMIN_EMAILS), never from the request.
 router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']), async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.onboardingComplete !== false) return res.status(400).json({ error: 'Profile is already complete.' });
 
-    const { name, gender, programPosition, schoolId, facultyId, noIdYet, privacyAccepted } = req.body || {};
+    const { name, gender, programPosition, idValue, privacyAccepted } = req.body || {};
     if (privacyAccepted !== true) return res.status(400).json({ error: 'Please accept the Privacy Policy.' });
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required.' });
-    if (!['Male', 'Female'].includes(gender)) return res.status(400).json({ error: 'Gender is required.' });
+    if (!['Male', 'Female', 'Prefer not to say'].includes(gender)) return res.status(400).json({ error: 'Gender is required.' });
     if (!programPosition || !String(programPosition).trim()) {
       return res.status(400).json({ error: user.role === 'STUDENT' ? 'Program, year and section are required.' : 'Position is required.' });
+    }
+
+    // Students use the student ID format; faculty and dean use the employee format. Admin has no ID.
+    if (user.role !== 'ADMIN') {
+      const check = validateId(idValue, user.role === 'STUDENT' ? 'STUDENT' : 'EMPLOYEE');
+      if (!check.ok) return res.status(400).json({ error: check.error });
+      const field = user.role === 'STUDENT' ? 'schoolId' : 'facultyId';
+      const taken = await User.findOne({ [field]: check.id, _id: { $ne: user._id } });
+      if (taken) return res.status(409).json({ error: 'That ID is already registered to another account.' });
+      user[field] = check.id;
     }
 
     user.name = String(name).trim();
     user.gender = gender;
     user.programPosition = String(programPosition).trim();
     user.privacyAcceptedAt = new Date();
-    user.noIdYet = !!noIdYet;
-
-    if (!noIdYet) {
-      if (user.role === 'STUDENT') {
-        const id = String(schoolId || '').toUpperCase();
-        if (!STUDENT_ID.test(id)) return res.status(400).json({ error: 'Invalid School ID format.' });
-        user.schoolId = id;
-      } else if (user.role === 'FACULTY') {
-        const id = String(facultyId || '').toUpperCase();
-        if (!FACULTY_ID.test(id)) return res.status(400).json({ error: 'Invalid Faculty ID format.' });
-        user.facultyId = id;
-      }
-    }
+    user.noIdYet = false;
     user.onboardingComplete = true;
-    await user.save();
+    await user.save(); // runs the model's validators
     res.json(sessionPayload(user));
   } catch (error) {
     if (error.code === 11000) return res.status(409).json({ error: 'That ID is already registered to another account.' });

@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
-import { cohortConfig } from '../data/cohortConfig';
 import { ViewIcon, ViewOffIcon, EmailIcon, PhoneIcon, CalendarIcon, CheckCircleIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
 import GoogleSignInButton from './GoogleSignInButton';
 import OnboardingModal from './OnboardingModal';
+import PrivacyPolicyModal from './PrivacyPolicyModal';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast,
-  FormControl, FormLabel, Select, useColorModeValue, Tabs, TabList, TabPanels, Tab, TabPanel,
+  FormControl, FormLabel, useColorModeValue,
   HStack, InputGroup, InputRightAddon,
-  FormHelperText,
   InputRightElement,
   IconButton,
   Container,
@@ -18,7 +17,7 @@ import {
   Link as ChakraLink,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, useDisclosure,
   Accordion, AccordionItem, AccordionButton, AccordionPanel, AccordionIcon,
-  createIcon, Checkbox,
+  createIcon,
 } from '@chakra-ui/react';
 
 // ───────────────────────── Palette (taken from the design mockup) ─────────────────────────
@@ -129,7 +128,7 @@ const STEPS = [
 ];
 
 const FAQS = [
-  { q: 'Who can use CCIS Sync?', a: 'Students and faculty of the College of Computing and Information Sciences. Register with your Google (Gmail) account and your School/Faculty ID — Admin verifies every account before it’s activated.' },
+  { q: 'Who can use CCIS Sync?', a: 'Students and faculty of the College of Computing and Information Sciences. Sign in with your school Google account (@antiquespride.edu.ph) and complete your profile with your School/Employee ID.' },
   { q: 'How do I book a consultation?', a: 'Log in, choose a faculty member and an available time, then submit your request with a short reason. The faculty member approves or declines it, and you are notified in your Mail.' },
   { q: 'Can I cancel an appointment?', a: 'Yes. You can cancel your own appointment from your dashboard, and the faculty member is notified.' },
   { q: 'Why is my account still pending?', a: 'New student and faculty accounts are reviewed by an administrator before access is granted. You will get an email once yours is approved; click the link in it to confirm your email, then log in.' },
@@ -158,8 +157,7 @@ export default function LandingPage() {
 
   // Login / registration modal ("Book" buttons open it)
   const { isOpen, onOpen, onClose } = useDisclosure();
-  const [tabIndex, setTabIndex] = useState(0); // 0 = Login, 1 = Register
-  const openAuth = (tab: number) => { setTabIndex(tab); onOpen(); };
+  const openAuth = () => onOpen();
 
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -170,81 +168,20 @@ export default function LandingPage() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [onboarding, setOnboarding] = useState<{ token: string; role: string; name: string } | null>(null);
+  // Google session waiting for the "is this your account?" answer, then (if the profile is incomplete) the profile form.
+  const [pendingOwner, setPendingOwner] = useState<any | null>(null);
+  const [onboarding, setOnboarding] = useState<any | null>(null);
   const [showLoginPw, setShowLoginPw] = useState(false);
 
   // Forgot Password modal state
   const { isOpen: isForgotOpen, onOpen: onForgotOpen, onClose: onForgotClose } = useDisclosure();
   const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
-  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
 
-  // Registration State
-  const [regName, setRegName] = useState('');
-  const [nameSuffix, setNameSuffix] = useState(''); // NEW: Tracks Jr., Sr., etc.
-  const [regGender, setRegGender] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [showRegPw, setShowRegPw] = useState(false);
-  const [regRole, setRegRole] = useState<'STUDENT' | 'FACULTY'>('STUDENT');
-
-  const [schoolId, setSchoolId] = useState('');
-  const [noId, setNoId] = useState(false); // "I don't have my ID yet" (students and faculty)
-
-  // NEW: Cascading Dropdown State
-  const [selProgram, setSelProgram] = useState('');
-  const [selYear, setSelYear] = useState('');
-  const [selSection, setSelSection] = useState('');
-
-  const [facultyPosition, setFacultyPosition] = useState('');
-  const [facultyId, setFacultyId] = useState('');
-  const [facultyTitle, setFacultyTitle] = useState('Prof.');
-
-  const [isRegistering, setIsRegistering] = useState(false); 
-  const [showRules, setShowRules] = useState(false); // only show the checklist once they start typing
-  
-
-  const PASSWORD_MIN_LENGTH = 12;
-  const passwordPattern = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
-
-  const passwordRules = {
-    length: regPassword.length >= PASSWORD_MIN_LENGTH,
-    upper: /[A-Z]/.test(regPassword),
-    number: /\d/.test(regPassword),
-    symbol: /[^A-Za-z0-9]/.test(regPassword),
-  };
-
   // --- THE TRUE LOGIN HANDLER ---
-  const [isResending, setIsResending] = useState(false);
   // Local development only: when the server has no email set up it hands back the link, shown here.
   const [devLink, setDevLink] = useState<{ title: string; link: string; button: string } | null>(null);
-  const handleResendVerification = async () => {
-    if (!loginEmail.trim()) {
-      toast({ title: 'Enter your email first', description: 'Type your Gmail username in the email box above, then click Resend.', status: 'info', position: 'top' });
-      return;
-    }
-    setIsResending(true);
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/resend-verification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: `${loginEmail.trim()}@gmail.com`.toLowerCase() })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not send the email.');
-      if (data.devLink) {
-        setDevLink({ title: 'Verification link', link: data.devLink, button: 'Verify my email' });
-      } else {
-        toast({ title: 'Check your inbox', description: data.message, status: 'success', position: 'top', duration: 6000 });
-      }
-    } catch (error: any) {
-      toast({ title: 'Could not resend', description: error.message, status: 'error', position: 'top' });
-    } finally {
-      setIsResending(false);
-    }
-  };
-
   // Shared by password login and Google sign-in: store the session and go to the right dashboard.
   const finishLogin = (data: any) => {
     // Save secure data to local storage
@@ -253,6 +190,8 @@ export default function LandingPage() {
     localStorage.setItem('userRole', data.role);
     localStorage.setItem('token', data.token);
     localStorage.setItem('programPosition', data.programPosition || '');
+    localStorage.setItem('userEmail', data.email || '');
+    localStorage.setItem('onboardingComplete', data.onboardingComplete === false ? 'false' : 'true');
 
     toast({ title: 'Login Successful', status: 'success', duration: 2000 });
 
@@ -282,14 +221,22 @@ export default function LandingPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      if (data.onboardingComplete === false) {
-        setOnboarding({ token: data.token, role: data.role, name: data.email });
-        return;
-      }
-      finishLogin(data);
+      setPendingOwner(data); // nothing is stored until the person confirms the account is theirs
     } catch (error: any) {
       toast({ title: 'Sign-in failed', description: error.message, status: 'error', position: 'top' });
     }
+  };
+
+  const confirmOwner = () => {
+    const data = pendingOwner;
+    setPendingOwner(null);
+    if (data.onboardingComplete === false) setOnboarding(data);
+    else finishLogin(data);
+  };
+  const denyOwner = () => {
+    setPendingOwner(null);
+    window.google?.accounts?.id?.disableAutoSelect?.(); // stop Google auto-picking this account next time
+    toast({ title: 'Signed out', description: 'Please sign in again with your own school account.', status: 'info', position: 'top' });
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -356,151 +303,11 @@ export default function LandingPage() {
   };
 
 
-  // Capitalise the first letter of the name and of every word that follows a space or a comma.
-  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formattedName = e.target.value.replace(/(^|[\s,])([a-z])/g, (_m, sep, ch) => sep + ch.toUpperCase());
-    setRegName(formattedName);
-  };
-
-  // Names are entered as "Last name, First name, Middle initial" (middle initial optional), e.g.
-  // "Dela Cruz, Juan, A." Returns the cleaned-up version, or null when the format is wrong.
-  const parseRegName = (raw: string): string | null => {
-    const parts = raw.split(',').map(p => p.trim().replace(/\s+/g, ' '));
-    if (parts.length < 2 || parts.length > 3) return null;
-    const [last, first, middle = ''] = parts;
-    const namePattern = /^\p{L}[\p{L}\s.'’-]*$/u;
-    if (!namePattern.test(last) || !namePattern.test(first)) return null;
-    if (middle) {
-      const m = middle.match(/^(\p{L})\.?$/u);
-      if (!m) return null;
-      return `${last}, ${first}, ${m[1].toUpperCase()}.`;
-    }
-    return `${last}, ${first}`;
-  };
-
-  // --- THE REGISTRATION HANDLER ---
-  const handleRegister = async (e: React.FormEvent) => {
-  e.preventDefault();
-
-  if (!acceptedPrivacy) {
-    toast({ title: 'Privacy Policy', description: 'Please read and accept the Privacy Policy to create an account.', status: 'warning', position: 'top' });
-    return;
-  }
-
-  if (regRole === 'STUDENT' && !noId) {
-    const schoolIdPattern = /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/;
-    if (!schoolIdPattern.test(schoolId)) {
-      toast({ title: 'Invalid School ID', description: 'Format must be e.g. 2024-1234-A or 2025-S04321', status: 'warning' });
-      return;
-    }
-  }
-
-  if (regRole === 'FACULTY' && !noId) {
-  const facultyIdPattern = /^UA-[A-Z]{5}-\d{4}-\d{4}$/;
-  if (!facultyIdPattern.test(facultyId)) {
-    toast({ title: 'Invalid Faculty ID', description: 'Format must be e.g. UA-COSFM-2022-1234', status: 'warning' });
-    return;
-  }
-}
-
-  const cleanName = parseRegName(regName);
-  if (!cleanName) {
-    toast({
-      title: 'Check your name',
-      description: 'Enter your name as: Last name, First name, Middle initial, separated by commas (e.g. Dela Cruz, Juan, A.). The middle initial is optional.',
-      status: 'warning',
-      position: 'top',
-      duration: 7000,
-      isClosable: true
-    });
-    return;
-  }
-
-  setIsRegistering(true);
-
-    try {
-      const baseName = nameSuffix ? `${cleanName} ${nameSuffix}` : cleanName;
-      const finalFullName = regRole === 'FACULTY' ? `${facultyTitle} ${baseName}` : baseName;
-
-      // NEW: Stitch the cascading dropdowns back together securely
-      const finalProgramPosition = regRole === 'STUDENT' 
-        ? `${selProgram} ${selYear}${selSection}` 
-        : facultyPosition;
-
-      const fullRegEmail = `${regEmail.trim()}@gmail.com`.toLowerCase();
-
-      if (!passwordPattern.test(regPassword)) {
-        toast({ 
-          title: 'Weak Password', 
-          description: 'Must be at least 12 characters, with 1 uppercase letter, 1 number, and 1 symbol.', 
-          status: 'warning' 
-        });
-        return;
-      }
-
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          name: finalFullName,
-          email: fullRegEmail,
-          password: regPassword,
-          role: regRole,
-          programPosition: finalProgramPosition,
-          schoolId: regRole === 'STUDENT' && !noId ? schoolId : undefined,
-          facultyId: regRole === 'FACULTY' && !noId ? facultyId : undefined,
-          noIdYet: noId,
-          privacyAccepted: acceptedPrivacy,
-          gender: regGender
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-
-      toast({
-        title: 'Registration Received',
-        description: data.message,
-        status: 'info',
-        duration: 7000,
-        isClosable: true,
-        position: 'top'
-      });
-
-      setRegName(''); 
-      setRegEmail(''); 
-      setRegPassword(''); 
-      setSelProgram('');
-      setSelYear('');
-      setSelSection('');
-      setFacultyPosition('');
-      setRegGender('');
-      setNoId(false);
-      setAcceptedPrivacy(false);
-    }catch (error) {
-      toast({ 
-        title: 'Registration Failed', 
-        description: (error as Error).message, // <-- Typecasted safely here
-        status: 'error', 
-        position: 'top' 
-      });
-    }
-    setIsRegistering(false);
-  };
-
-
   // The original login/register form, unchanged, now shown inside the modal
   const authTabs = (
-    <Tabs isFitted colorScheme="blue" variant="enclosed-colored" index={tabIndex} onChange={setTabIndex}>
-            <TabList mb="1em"><Tab py={4}>Login</Tab><Tab py={4}>Register</Tab></TabList>
-            <TabPanels>
-              
+    <Box>
               {/* LOGIN PANEL */}
-              <TabPanel p={8}>
-                <VStack spacing={3} mb={6}>
-                  <GoogleSignInButton onCredential={handleGoogleCredential} />
-                  <Text fontSize="xs" color="gray.500">Use your school Google account</Text>
-                </VStack>
+              <Box p={8}>
                 <form onSubmit={handleLogin}>
                   <VStack spacing={5}>
                     <FormControl isRequired>
@@ -535,252 +342,19 @@ export default function LandingPage() {
                           Forgot password?
                         </ChakraLink>
                       </Flex>
-                      <Flex justify="flex-end" mt={1}>
-                        <ChakraLink fontSize="sm" color={linkColor} onClick={isResending ? undefined : handleResendVerification}>
-                          {isResending ? 'Sending...' : "Didn't get the verification email? Resend"}
-                        </ChakraLink>
-                      </Flex>
                     </FormControl>
                     <Button type="submit" colorScheme="blue" size="lg" w="100%" isLoading={isLoggingIn}>Secure Login</Button>
                   </VStack>
                 </form>
-              </TabPanel>
-
-              {/* REGISTRATION PANEL */}
-    <TabPanel p={8}>
-      <form onSubmit={handleRegister}>
-        <VStack spacing={4}>
-        
-        {/* 1. ROLE SELECTOR */}
-        <FormControl isRequired>
-          <FormLabel>I am registering as a:</FormLabel>
-          <Select value={regRole} onChange={(e) => setRegRole(e.target.value as 'STUDENT' | 'FACULTY')}>
-            <option value="STUDENT">Student</option>
-            <option value="FACULTY">Faculty Member</option>
-          </Select>
-        </FormControl>
-
-        {/* 2. FULL NAME & SUFFIX */}
-        <HStack align="flex-end" w="100%">
-          {/* Render Title Dropdown ONLY for Faculty */}
-          {regRole === 'FACULTY' && (
-            <FormControl w="130px" isRequired>
-              <FormLabel>Title</FormLabel>
-              <Select value={facultyTitle} onChange={(e) => setFacultyTitle(e.target.value)}>
-                <option value="Prof.">Prof.</option>
-                <option value="Dr.">Dr.</option>
-                <option value="Engr.">Engr.</option>
-                <option value="Mr.">Mr.</option>
-                <option value="Ms.">Ms.</option>
-              </Select>
-            </FormControl>
-          )}
-
-          <FormControl isRequired>
-            <FormLabel>Name</FormLabel>
-            <Input 
-              placeholder="Last name, First name, M.I." 
-              value={regName} 
-              onChange={handleNameChange} 
-            />
-            <FormHelperText>Separate with commas, e.g. Dela Cruz, Juan, A. (middle initial is optional)</FormHelperText>
-          </FormControl>
-
-          <FormControl w="110px">
-            <FormLabel>Suffix</FormLabel>
-            <Select value={nameSuffix} onChange={(e) => setNameSuffix(e.target.value)}>
-              <option value="">None</option>
-              <option value="Sr.">Sr.</option>
-              <option value="Jr.">Jr.</option>
-              <option value="I">I</option>
-              <option value="II">II</option>
-              <option value="III">III</option>
-              <option value="IV">IV</option>
-              <option value="V">V</option>
-            </Select>
-          </FormControl>
-        </HStack>
-
-        {/* GENDER — asked once here (students and faculty), no longer on appointments */}
-        <FormControl isRequired>
-          <FormLabel>Gender</FormLabel>
-          <Select placeholder="Select gender" value={regGender} onChange={(e) => setRegGender(e.target.value)}>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-          </Select>
-        </FormControl>
-
-        {/* 3. DYNAMIC FORM FIELDS (ACADEMIC IDENTITY) */}
-        {regRole === 'STUDENT' ? (
-          <>
-            <Box>
-              {!noId && (
-                <FormControl isRequired>
-                  <FormLabel>School ID</FormLabel>
-                  <Input 
-                    placeholder="2024-1234-A or 2025-S04321" 
-                    value={schoolId} 
-                    onChange={(e) => setSchoolId(e.target.value.toUpperCase())} 
-                  />
-                  <FormHelperText fontSize="xs">Old format: YYYY-XXXX-Letter · New format: YYYY-S0XXXX</FormHelperText>
-                </FormControl>
-              )}
-              <Checkbox isChecked={noId} onChange={(e) => setNoId(e.target.checked)} size="sm" mt={noId ? 0 : 2}>
-                I don't have my School ID yet
-              </Checkbox>
-              {noId && (
-                <Text fontSize="xs" color="gray.500" mt={1}>
-                  An administrator will review your account without an ID and can add it for you later.
-                </Text>
-              )}
-            </Box>
-          
-            <FormControl isRequired>
-              <FormLabel>Program / Year / Section</FormLabel>
-              <HStack w="100%">
-                {/* PROGRAM DROPDOWN */}
-                <Select
-                  value={selProgram}
-                  onChange={(e) => {
-                    setSelProgram(e.target.value);
-                    setSelYear('');    // Reset downstream
-                    setSelSection(''); // Reset downstream
-                  }}
-                  >
-                  <option value="" disabled hidden>Program</option>
-                    {Object.keys(cohortConfig).map(prog => (
-                  <option value={prog} key={prog}>{prog}</option>
-                ))}
-              </Select>
-
-                {/* YEAR DROPDOWN */}
-              <Select
-                value={selYear}
-                onChange={(e) => {
-                  setSelYear(e.target.value);
-                  setSelSection(''); // Reset downstream section when year changes
-                }}
-                isDisabled={!selProgram}
-              >
-                <option value="" disabled hidden>Year</option>
-                {selProgram && Object.keys(cohortConfig[selProgram]).map(year => (
-                  <option value={year} key={year}>{year}</option>
-                ))}
-              </Select>
-
-              {/* SECTION DROPDOWN */}
-              <Select
-                value={selSection}
-                onChange={(e) => setSelSection(e.target.value)}
-                isDisabled={!selYear}
-              >
-                <option value="" disabled hidden>Section</option>
-                {selProgram && selYear && cohortConfig[selProgram][selYear].map(sec => (
-                  <option value={sec} key={sec}>{sec}</option>
-                ))}
-              </Select>
-
-            </HStack>
-          </FormControl>
-          </>
-        ) : (
-          <FormControl isRequired>
-            <FormLabel>Academic Position</FormLabel>
-            <Input 
-              placeholder="e.g. IT Instructor or Program Head" 
-              value={facultyPosition} 
-              onChange={(e) => setFacultyPosition(e.target.value)} 
-            />
-          </FormControl>
-        )}
-        {regRole === 'FACULTY' && (
-          <Box>
-            {!noId && (
-              <FormControl isRequired>
-                <FormLabel>Faculty ID</FormLabel>
-                <Input 
-                  placeholder="e.g. UA-COSFM-2022-1234" 
-                  value={facultyId} 
-                  onChange={(e) => setFacultyId(e.target.value.toUpperCase())} 
-                />
-              </FormControl>
-            )}
-            <Checkbox isChecked={noId} onChange={(e) => setNoId(e.target.checked)} size="sm" mt={noId ? 0 : 2}>
-              I don't have my Faculty ID yet
-            </Checkbox>
-            {noId && (
-              <Text fontSize="xs" color="gray.500" mt={1}>
-                An administrator will review your account without an ID and can add it for you later.
-              </Text>
-            )}
-          </Box>
-        )}
-
-        {/* 4. SYSTEM CREDENTIALS (MOVED TO BOTTOM) */}
-        <FormControl isRequired>
-          <FormLabel>Gmail Address</FormLabel>
-          <InputGroup>
-            <Input
-              placeholder="e.g. jdelacruz"
-              value={regEmail}
-              onChange={(e) => setRegEmail(cleanEmailName(e.target.value))}
-            />
-            <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-              @gmail.com
-            </InputRightAddon>
-          </InputGroup>
-        </FormControl>
-
-        <FormControl isRequired>
-    <FormLabel>Password</FormLabel>
-    <InputGroup>
-      <Input 
-        type={showRegPw ? 'text' : 'password'} 
-        value={regPassword} 
-        onChange={(e) => { setRegPassword(e.target.value); setShowRules(true); }} 
-      />
-      <InputRightElement>
-        <IconButton
-          aria-label="Toggle password visibility"
-          icon={showRegPw ? <ViewOffIcon /> : <ViewIcon />}
-          size="sm"
-          variant="ghost"
-          onClick={() => setShowRegPw(!showRegPw)}
-        />
-      </InputRightElement>
-    </InputGroup>
-    {showRules && (
-      <VStack align="start" mt={2} spacing={0} fontSize="xs">
-        <Text color={passwordRules.length ? 'green.500' : 'gray.400'}>{passwordRules.length ? '✓' : '○'} At least 12 characters</Text>
-        <Text color={passwordRules.upper ? 'green.500' : 'gray.400'}>{passwordRules.upper ? '✓' : '○'} One uppercase letter</Text>
-        <Text color={passwordRules.number ? 'green.500' : 'gray.400'}>{passwordRules.number ? '✓' : '○'} One number</Text>
-        <Text color={passwordRules.symbol ? 'green.500' : 'gray.400'}>{passwordRules.symbol ? '✓' : '○'} One symbol (e.g. ! @ # . _ -)</Text>
-      </VStack>
-    )}
-  </FormControl>
-
-        {/* 5. PRIVACY POLICY CONSENT */}
-        <Checkbox isChecked={acceptedPrivacy} onChange={(e) => setAcceptedPrivacy(e.target.checked)} alignItems="flex-start" mt={2}>
-          <Text fontSize="sm">
-            I have read and agree to the{' '}
-            <ChakraLink color="blue.500" fontWeight="600" onClick={(e) => { e.preventDefault(); onPrivacyOpen(); }}>
-              Privacy Policy
-            </ChakraLink>
-            .
-          </Text>
-        </Checkbox>
-
-        {/* 6. SUBMIT BUTTON */}
-        <Button type="submit" colorScheme="green" size="lg" w="100%" mt={4} isLoading={isRegistering} isDisabled={!acceptedPrivacy}>
-          {regRole === 'STUDENT' ? 'Create Account' : 'Request Faculty Access'}
-        </Button>
-        
-      </VStack>
-    </form>
-  </TabPanel>
-
-            </TabPanels>
-          </Tabs>
+                <Flex align="center" my={5}>
+                  <Box flex="1" h="1px" bg="gray.200" /><Text mx={3} fontSize="xs" color="gray.500">OR</Text><Box flex="1" h="1px" bg="gray.200" />
+                </Flex>
+                <VStack spacing={2}>
+                  <GoogleSignInButton onCredential={handleGoogleCredential} />
+                  <Text fontSize="xs" color="gray.500">Students and faculty: use your @antiquespride.edu.ph account</Text>
+                </VStack>
+              </Box>
+    </Box>
   );
 
   const NAV_LINKS = [
@@ -802,11 +376,11 @@ export default function LandingPage() {
         size="sm" px={{ base: 3, sm: 5 }} variant="outline" borderRadius="full" borderWidth="2px"
         borderColor={outlineBorder} color={headingColor} fontWeight={700} letterSpacing="0.04em"
         _hover={{ bg: outlineHoverBg }} _active={{ bg: outlineHoverBg }}
-        onClick={() => openAuth(0)}
+        onClick={() => openAuth()}
       >
         Log in
       </Button>
-      <Button size="sm" px={{ base: 3, sm: 5 }} {...pillPrimary} onClick={() => openAuth(1)}>Sign up</Button>
+      <Button size="sm" px={{ base: 3, sm: 5 }} {...pillPrimary} onClick={() => openAuth()}>Sign in</Button>
     </HStack>
   );
 
@@ -858,14 +432,10 @@ export default function LandingPage() {
                 size="lg" px={10} bg={ORANGE} color="white" borderRadius="full" fontWeight="800" letterSpacing="0.06em"
                 boxShadow="0 8px 20px rgba(240,138,60,0.45)" rightIcon={<CalendarIcon />}
                 _hover={{ bg: ORANGE_HOVER, transform: 'translateY(-2px)' }} _active={{ bg: ORANGE_HOVER }}
-                onClick={() => openAuth(0)}
+                onClick={() => openAuth()}
               >
                 BOOK NOW
               </Button>
-              <Text mt={4} fontSize="sm" color={bodyColor}>
-                New here?{' '}
-                <ChakraLink color={linkColor} fontWeight="700" onClick={() => openAuth(1)}>Create an account</ChakraLink>
-              </Text>
             </Box>
             <Box flex="1" w="100%" maxW={{ base: '420px', md: '540px' }}>
               <HeroArt />
@@ -889,7 +459,7 @@ export default function LandingPage() {
                 <Heading as="h3" fontSize="md" fontWeight="800" letterSpacing="0.06em" textTransform="uppercase">{s.title}</Heading>
                 <Text fontSize="sm" color="whiteAlpha.900" flex="1">{s.text}</Text>
                 <Button size="sm" px={8} mt={2} bg="white" color={NAVY} borderRadius="full" fontWeight="800"
-                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth(0)}>BOOK NOW!</Button>
+                  _hover={{ bg: 'blue.50' }} onClick={() => openAuth()}>BOOK NOW!</Button>
               </VStack>
             ))}
           </SimpleGrid>
@@ -1026,102 +596,31 @@ export default function LandingPage() {
       </Modal>
 
       {/* ================= PRIVACY POLICY MODAL ================= */}
-      <OnboardingModal
-        isOpen={!!onboarding}
-        role={onboarding?.role || ''}
-        initialName={onboarding?.name || ''}
-        token={onboarding?.token || ''}
-        onOpenPrivacy={onPrivacyOpen}
-        onDone={(data) => { setOnboarding(null); finishLogin(data); }}
-      />
-      <Modal isOpen={isPrivacyOpen} onClose={onPrivacyClose} size="xl" isCentered scrollBehavior="inside">
-        <ModalOverlay backdropFilter="blur(4px)" />
-        <ModalContent borderRadius="2xl" bg={modalBg}>
-          <ModalHeader color={headingColor}>Privacy Policy</ModalHeader>
-          <ModalCloseButton />
+      <Modal isOpen={!!pendingOwner} onClose={() => {}} closeOnOverlayClick={false} closeOnEsc={false} isCentered>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Confirm your account</ModalHeader>
           <ModalBody pb={6}>
-            <VStack align="stretch" spacing={4} fontSize="sm" color={bodyColor}>
-              <Text>
-                CCIS Sync is the consultation appointment system of the College of Computing and Information
-                Sciences, University of Antique. This policy explains what personal information we collect,
-                why, and who can see it, in line with the Data Privacy Act of 2012 (Republic Act No. 10173).
-              </Text>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>1. Information we collect</Text>
-                <VStack align="stretch" spacing={1} pl={3}>
-                  <Text>• Account details: full name, gender, Gmail address, role (student or faculty), and your password (stored only in encrypted form).</Text>
-                  <Text>• School identity: School ID or Faculty ID, and your program, year, and section (students) or position (faculty).</Text>
-                  <Text>• Consultation records: appointment requests (date, time, purpose), and for completed consultations, the case presented, action taken, and remarks.</Text>
-                  <Text>• Faculty availability: class schedules, consultation hours, live status and location, and personal calendar notes.</Text>
-                  <Text>• In-app notifications about your appointments and account.</Text>
-                </VStack>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>2. Why we collect it</Text>
-                <Text>
-                  To verify your identity, let students book consultations with faculty, record consultations
-                  that took place, show faculty availability, send reminders and notices, and produce the
-                  consultation reports the college requires. Gender is used only for summary statistics
-                  (such as how many students or faculty are male or female) in those reports.
-                </Text>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>3. Who can see your information</Text>
-                <VStack align="stretch" spacing={1} pl={3}>
-                  <Text>• Students see their own requests and consultation records. They see a faculty member's consultation hours and class time blocks only; subject, room, and personal notes are never shown.</Text>
-                  <Text>• Faculty see the requests made to them and the consultation records they sign off. Their personal calendar notes are visible only to them.</Text>
-                  <Text>• The Admin verifies accounts and can view accounts and consultation records. The Dean can view consultation records and analytics for the college.</Text>
-                  <Text>• We do not sell your information or share it with outside parties.</Text>
-                </VStack>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>4. How we protect it</Text>
-                <Text>
-                  Passwords are encrypted, access is limited by role, and sign-in sessions expire automatically.
-                  No system is perfectly secure, so please keep your password private and log out on shared computers.
-                </Text>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>5. How long we keep it</Text>
-                <Text>
-                  We keep your information while your account is active and for as long as the college needs
-                  consultation records for its reports and school records.
-                </Text>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>6. Your rights</Text>
-                <Text>
-                  Under the Data Privacy Act you may ask to access your personal information, correct
-                  inaccurate information, object to its processing, and request its removal or blocking
-                  where the law allows. You may also file a complaint with the National Privacy Commission.
-                </Text>
-              </Box>
-
-              <Box>
-                <Text fontWeight="700" mb={1}>7. Contact</Text>
-                <Text>
-                  For privacy questions or requests, contact the CCIS office or the University's Data
-                  Protection Officer. [Contact details to be provided by the college.]
-                </Text>
-              </Box>
-
-              <Text fontSize="xs" color="gray.500">
-                By ticking the box on the registration form, you confirm that you have read this policy and
-                consent to the collection and use of your information as described.
-              </Text>
-            </VStack>
-            <Button mt={6} w="100%" colorScheme="blue" onClick={() => { setAcceptedPrivacy(true); onPrivacyClose(); }}>
-              I Understand and Agree
-            </Button>
+            <Text mb={5}>
+              Do you confirm that you are the legitimate owner of this school account (<b>{pendingOwner?.email}</b>)?
+            </Text>
+            <HStack justify="flex-end">
+              <Button variant="outline" onClick={denyOwner}>No</Button>
+              <Button colorScheme="blue" onClick={confirmOwner}>Yes, this is my account</Button>
+            </HStack>
           </ModalBody>
         </ModalContent>
       </Modal>
+      <OnboardingModal
+        isOpen={!!onboarding}
+        role={onboarding?.role || ''}
+        email={onboarding?.email || ''}
+        token={onboarding?.token || ''}
+        onOpenPrivacy={onPrivacyOpen}
+        onSkip={onboarding?.role === 'STUDENT' ? () => { const d = onboarding; setOnboarding(null); finishLogin(d); } : undefined}
+        onDone={(data) => { setOnboarding(null); finishLogin(data); }}
+      />
+      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
 
       {/* Local-development link window: shown instead of the terminal when email isn't set up */}
       <Modal isOpen={!!devLink} onClose={() => setDevLink(null)} isCentered>

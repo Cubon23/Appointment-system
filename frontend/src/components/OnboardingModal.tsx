@@ -4,14 +4,17 @@ import {
   FormHelperText, Input, Select, Checkbox, Button, HStack, Text, Link as ChakraLink,
 } from '@chakra-ui/react';
 import { cohortConfig } from '../data/cohortConfig';
+import { idHint, isValidId } from '../utils/idValidator';
 
 interface Props {
   isOpen: boolean;
   role: string;
-  initialName: string;
+  email: string;
   token: string;
   onDone: (data: any) => void;
   onOpenPrivacy: () => void;
+  // Students may browse read-only instead of finishing now. Leave undefined to make the form mandatory.
+  onSkip?: () => void;
 }
 
 // "Last name, First name, M.I." e.g. "Dela Cruz, Juan, A." (middle initial optional)
@@ -29,8 +32,10 @@ const parseName = (raw: string): string | null => {
   return `${last}, ${first}`;
 };
 
-export default function OnboardingModal({ isOpen, role, initialName, token, onDone, onOpenPrivacy }: Props) {
+export default function OnboardingModal({ isOpen, role, email, token, onDone, onOpenPrivacy, onSkip }: Props) {
   const isStudent = role === 'STUDENT';
+  const needsId = role !== 'ADMIN'; // students: student ID; faculty and dean: employee ID
+  const idKind = isStudent ? 'STUDENT' : 'EMPLOYEE';
   const [name, setName] = useState('');
   const [gender, setGender] = useState('');
   const [program, setProgram] = useState('');
@@ -38,7 +43,6 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
   const [section, setSection] = useState('');
   const [position, setPosition] = useState('');
   const [idValue, setIdValue] = useState('');
-  const [noId, setNoId] = useState(false);
   const [privacy, setPrivacy] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -50,6 +54,7 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
     if (!gender) return setError('Please select your gender.');
     if (isStudent && !(program && year && section)) return setError('Please select your program, year and section.');
     if (!isStudent && !position.trim()) return setError('Please enter your position.');
+    if (needsId && !isValidId(idValue, idKind)) return setError(`Enter a valid ${isStudent ? 'Student' : 'Employee'} ID (${idHint(idKind)}).`);
     if (!privacy) return setError('Please accept the Privacy Policy.');
 
     setSaving(true);
@@ -61,9 +66,7 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
           name: cleanName,
           gender,
           programPosition: isStudent ? `${program} ${year}${section}` : position.trim(),
-          schoolId: isStudent ? idValue : undefined,
-          facultyId: role === 'FACULTY' ? idValue : undefined,
-          noIdYet: noId,
+          idValue: needsId ? idValue : undefined,
           privacyAccepted: true,
         }),
       });
@@ -84,7 +87,7 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
         <ModalBody pb={6}>
           <VStack spacing={4} align="stretch">
             <Text fontSize="sm" color="gray.600">
-              Signed in as <b>{initialName}</b>. We just need a few details Google doesn't provide.
+              Signed in as <b>{email}</b>. We just need a few details Google doesn't provide.
             </Text>
             <FormControl isRequired>
               <FormLabel>Full name</FormLabel>
@@ -94,7 +97,7 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
             <FormControl isRequired>
               <FormLabel>Gender</FormLabel>
               <Select placeholder="Select" value={gender} onChange={e => setGender(e.target.value)}>
-                <option>Male</option><option>Female</option>
+                <option>Male</option><option>Female</option><option>Prefer not to say</option>
               </Select>
             </FormControl>
             {isStudent ? (
@@ -124,21 +127,15 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
                 <Input placeholder="e.g. IT Instructor or Program Head" value={position} onChange={e => setPosition(e.target.value)} />
               </FormControl>
             )}
-            {(isStudent || role === 'FACULTY') && (
-              <FormControl>
-                {!noId && (
-                  <>
-                    <FormLabel>{isStudent ? 'School ID' : 'Faculty ID'}</FormLabel>
-                    <Input
-                      placeholder={isStudent ? 'e.g. 2024-1234-A or 2025-S04321' : 'e.g. UA-COSFM-2022-1234'}
-                      value={idValue}
-                      onChange={e => setIdValue(e.target.value.toUpperCase())}
-                    />
-                  </>
-                )}
-                <Checkbox mt={2} isChecked={noId} onChange={e => setNoId(e.target.checked)}>
-                  I don't have my ID yet (an Admin can add it later)
-                </Checkbox>
+            {needsId && (
+              <FormControl isRequired isInvalid={idValue !== '' && !isValidId(idValue, idKind)}>
+                <FormLabel>{isStudent ? 'School ID' : 'Employee ID'}</FormLabel>
+                <Input
+                  placeholder={isStudent ? 'e.g. 2025-S00001 or 2025-1234-A' : 'e.g. 2025S-00001'}
+                  value={idValue}
+                  onChange={e => setIdValue(e.target.value.toUpperCase())}
+                />
+                <FormHelperText>Accepted format: {idHint(idKind)}</FormHelperText>
               </FormControl>
             )}
             <Checkbox isChecked={privacy} onChange={e => setPrivacy(e.target.checked)}>
@@ -147,6 +144,11 @@ export default function OnboardingModal({ isOpen, role, initialName, token, onDo
             </Checkbox>
             {error && <Text color="red.500" fontSize="sm">{error}</Text>}
             <Button colorScheme="blue" onClick={submit} isLoading={saving}>Save and continue</Button>
+            {onSkip && (
+              <Button variant="ghost" size="sm" onClick={onSkip}>
+                Not now: browse read-only (booking stays locked)
+              </Button>
+            )}
           </VStack>
         </ModalBody>
       </ModalContent>

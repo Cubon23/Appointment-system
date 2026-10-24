@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { cohortConfig } from '../data/cohortConfig';
 import { formatDate, formatDateTime } from './dateUtils';
 import BroadcastBanner from './BroadcastBanner';
+import OnboardingModal from './OnboardingModal';
+import PrivacyPolicyModal from './PrivacyPolicyModal';
 import {
   Box, Heading, Text, Button as ChakraButton, Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Badge, Input, Select, VStack, HStack, useToast, FormControl, FormLabel, Textarea, Flex,
@@ -73,6 +75,10 @@ export default function StudentDashboard() {
   const toast = useToast();
   const userName = localStorage.getItem('userName') || 'Student';
   const userId = localStorage.getItem('userId') || '';
+  // Read-only mode: until the profile (incl. a valid ID) is complete, students can browse but not book.
+  const profileComplete = localStorage.getItem('onboardingComplete') !== 'false';
+  const { isOpen: isProfileOpen, onOpen: onProfileOpen, onClose: onProfileClose } = useDisclosure();
+  const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
   const { colorMode, toggleColorMode } = useColorMode();
 
   const [activePage, setActivePage] = useState('home');
@@ -215,6 +221,10 @@ export default function StudentDashboard() {
 
   const handleAppointmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!profileComplete) {
+      toast({ title: 'Read-only mode', description: 'Complete your profile details and ID verification to unlock consultation requests.', status: 'warning', position: 'top' });
+      return;
+    }
 
     const sectionError = validateStudentSection(studentSection);
     if (sectionError) {
@@ -409,6 +419,13 @@ export default function StudentDashboard() {
           {activePage === 'appointments' && (
             <Flex gap={6} align="flex-start" wrap="wrap">
               <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm" w="600px" maxW="100%">
+                {!profileComplete && (
+                  <Box mb={4} p={4} borderRadius="md" bg="orange.50" borderWidth="1px" borderColor="orange.300" color="orange.900">
+                    <Text fontWeight="bold" mb={1}>Read-only mode</Text>
+                    <Text fontSize="sm" mb={3}>Complete your profile details and ID verification to unlock consultation requests.</Text>
+                    <ChakraButton size="sm" colorScheme="orange" onClick={onProfileOpen}>Complete profile</ChakraButton>
+                  </Box>
+                )}
                 <form onSubmit={handleAppointmentSubmit}>
                   <VStack spacing={4}>
                     <FormControl isRequired>
@@ -498,7 +515,7 @@ export default function StudentDashboard() {
                         />
                       )}
                     </FormControl>
-                    <ChakraButton type="submit" colorScheme="blue" w="100%" isLoading={isSubmitting} size="lg">Submit Appointment Request</ChakraButton>
+                    <ChakraButton type="submit" colorScheme="blue" w="100%" isLoading={isSubmitting} isDisabled={!profileComplete} size="lg" title={profileComplete ? undefined : 'Complete your profile details and ID verification to unlock consultation requests.'}>Submit Appointment Request</ChakraButton>
                   </VStack>
                 </form>
               </Box>
@@ -616,6 +633,22 @@ export default function StudentDashboard() {
           The student can't edit this — only the faculty member who completed
           the consultation can write casePresented/interventionTaken/remarks,
           via FacultyDashboard's "Complete & Sign Off" form. */}
+      <OnboardingModal
+        isOpen={isProfileOpen}
+        role="STUDENT"
+        email={localStorage.getItem('userEmail') || ''}
+        token={localStorage.getItem('token') || ''}
+        onOpenPrivacy={onPrivacyOpen}
+        onSkip={onProfileClose}
+        onDone={(data) => {
+          localStorage.setItem('userName', data.name);
+          localStorage.setItem('token', data.token);
+          localStorage.setItem('programPosition', data.programPosition || '');
+          localStorage.setItem('onboardingComplete', 'true');
+          window.location.reload(); // refresh so every part of the dashboard uses the completed profile
+        }}
+      />
+      <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
       <Modal isOpen={isSummaryOpen} onClose={onSummaryClose} isCentered>
         <ModalOverlay />
         <ModalContent>
@@ -654,4 +687,4 @@ export default function StudentDashboard() {
     </div>
 
   );
-}
+}

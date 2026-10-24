@@ -19,7 +19,7 @@ const APPOINTMENTS = Appointment.collection.name; // collection name for $lookup
 const PROGRAM_REGEX = '^(.+?)\\s+(\\d)([A-Za-z])$';
 
 // Maps a user's gender to "Male"/"Female", or "Not provided" when missing (older accounts).
-const GENDER_OR_NOT_PROVIDED = { $cond: [{ $in: ['$gender', ['Male', 'Female']] }, '$gender', 'Not provided'] };
+const GENDER_OR_NOT_PROVIDED = { $cond: [{ $in: ['$gender', ['Male', 'Female', 'Prefer not to say']] }, '$gender', 'Not provided'] };
 
 // ── Metric 1: user demographics — ONE aggregation with $facet ───────────────
 // Every facet runs over the same filtered set of users in a single database call.

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { STUDENT_ID_REGEX, EMPLOYEE_ID_REGEX } = require('../utils/idValidator');
 
 const UserSchema = new mongoose.Schema({
   role: { 
@@ -7,7 +8,7 @@ const UserSchema = new mongoose.Schema({
     required: true 
   },
   name: { type: String, required: true },
-  gender: { type: String, enum: ['Male', 'Female'] }, // collected at registration; accounts created earlier won't have it
+  gender: { type: String, enum: ['Male', 'Female', 'Prefer not to say'] }, // collected at registration; accounts created earlier won't have it
   email: { type: String, required: true, unique: true },
   
   // === NEW: Authentication & Security Fields ===
@@ -40,9 +41,9 @@ const UserSchema = new mongoose.Schema({
     validator: function(v) {
       if (!v) return true; // no ID yet — allowed, will be flagged instead
       if (this.role !== 'STUDENT') return true;
-      return /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/.test(v);
+      return STUDENT_ID_REGEX.test(v);
     },
-    message: props => `${props.value} is not a valid Student ID format. Use YYYY-XXXX-L or YYYY-S0XXXX.`
+    message: props => `${props.value} is not a valid Student ID format. Use 2025-S00001 or 2025-1234-A.`
   }
 },
 
@@ -56,9 +57,9 @@ facultyId: {
     validator: function(v) {
       if (!v) return true; // no ID yet — allowed, will be flagged instead
       if (this.role !== 'FACULTY') return true;
-      return /^UA-[A-Z]{5}-\d{4}-\d{4}$/.test(v);
+      return EMPLOYEE_ID_REGEX.test(v);
     },
-    message: props => `${props.value} is not a valid Faculty ID format. Use UA-XXXXX-YYYY-NNNN.`
+    message: props => `${props.value} is not a valid Faculty ID format. Use 2025S-00001.`
   }
 },
 
