@@ -162,14 +162,12 @@ export default function LandingPage() {
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Login State
-  // The fields already show "@gmail.com" on the right, so keep only the part before any "@"
+  // The fields already show "@antiquespride.edu.ph" on the right, so keep only the part before any "@"
   // (if someone types or pastes a full address, the domain is dropped instead of doubled).
   const cleanEmailName = (v: string) => v.replace(/@.*$/, '').replace(/\s/g, '');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  // Google session waiting for the "is this your account?" answer, then (if the profile is incomplete) the profile form.
-  const [pendingOwner, setPendingOwner] = useState<any | null>(null);
   const [onboarding, setOnboarding] = useState<any | null>(null);
   const [showLoginPw, setShowLoginPw] = useState(false);
 
@@ -221,22 +219,11 @@ export default function LandingPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      setPendingOwner(data); // nothing is stored until the person confirms the account is theirs
+      if (data.onboardingComplete === false) setOnboarding(data); // first login: ask for the details Google can't give
+      else finishLogin(data);
     } catch (error: any) {
       toast({ title: 'Sign-in failed', description: error.message, status: 'error', position: 'top' });
     }
-  };
-
-  const confirmOwner = () => {
-    const data = pendingOwner;
-    setPendingOwner(null);
-    if (data.onboardingComplete === false) setOnboarding(data);
-    else finishLogin(data);
-  };
-  const denyOwner = () => {
-    setPendingOwner(null);
-    window.google?.accounts?.id?.disableAutoSelect?.(); // stop Google auto-picking this account next time
-    toast({ title: 'Signed out', description: 'Please sign in again with your own school account.', status: 'info', position: 'top' });
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -244,7 +231,7 @@ export default function LandingPage() {
     setIsLoggingIn(true);
     
     try {
-      const fullLoginEmail = `${loginEmail.trim()}@gmail.com`.toLowerCase();
+      const fullLoginEmail = `${loginEmail.trim()}@antiquespride.edu.ph`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/login`, {
         method: 'POST',
@@ -273,7 +260,7 @@ export default function LandingPage() {
     setIsSendingReset(true);
 
     try {
-      const fullEmail = `${forgotEmail.trim()}@gmail.com`.toLowerCase();
+      const fullEmail = `${forgotEmail.trim()}@antiquespride.edu.ph`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/forgot-password`, {
         method: 'POST',
@@ -319,7 +306,7 @@ export default function LandingPage() {
                           onChange={(e) => setLoginEmail(cleanEmailName(e.target.value))}
                         />
                         <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                          @gmail.com
+                          @antiquespride.edu.ph
                         </InputRightAddon>
                       </InputGroup>
                     </FormControl>
@@ -596,21 +583,6 @@ export default function LandingPage() {
       </Modal>
 
       {/* ================= PRIVACY POLICY MODAL ================= */}
-      <Modal isOpen={!!pendingOwner} onClose={() => {}} closeOnOverlayClick={false} closeOnEsc={false} isCentered>
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>Confirm your account</ModalHeader>
-          <ModalBody pb={6}>
-            <Text mb={5}>
-              Do you confirm that you are the legitimate owner of this school account (<b>{pendingOwner?.email}</b>)?
-            </Text>
-            <HStack justify="flex-end">
-              <Button variant="outline" onClick={denyOwner}>No</Button>
-              <Button colorScheme="blue" onClick={confirmOwner}>Yes, this is my account</Button>
-            </HStack>
-          </ModalBody>
-        </ModalContent>
-      </Modal>
       <OnboardingModal
         isOpen={!!onboarding}
         role={onboarding?.role || ''}
@@ -666,7 +638,7 @@ export default function LandingPage() {
                     onChange={(e) => setForgotEmail(cleanEmailName(e.target.value))}
                   />
                   <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                    @gmail.com
+                    @antiquespride.edu.ph
                   </InputRightAddon>
                 </InputGroup>
               </FormControl>
