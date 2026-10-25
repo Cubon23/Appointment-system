@@ -43,6 +43,7 @@ const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 // Official ID formats (same rules as the User model).
 const { STUDENT_ID_REGEX: SCHOOL_ID_REGEX, EMPLOYEE_ID_REGEX: FACULTY_ID_REGEX } = require('../utils/idValidator');
 const Broadcast = require('../models/Broadcast');
+const { isProfileComplete, parseList } = require('../utils/signInPolicy');
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
@@ -349,8 +350,8 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
     // Read-only mode: students who haven't completed their profile (incl. a valid ID) can browse but not book.
-    const booker = await User.findById(req.user.userId).select('onboardingComplete');
-    if (!booker || booker.onboardingComplete === false) {
+    const booker = await User.findById(req.user.userId).select('role onboardingComplete schoolId');
+    if (!booker || !isProfileComplete(booker)) {
       return res.status(403).json({ error: 'Complete your profile details and ID to unlock consultation requests.' });
     }
 
@@ -562,6 +563,33 @@ router.patch('/users/:id/id', requireAuth(['ADMIN']), async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Could not save the ID.' });
+  }
+});
+
+// Admin moves an older account (e.g. registered with a personal Gmail) to the person's school email,
+// so their next Google sign-in finds the account with its appointments and ID intact.
+router.patch('/users/:id/email', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const newEmail = String(req.body.email || '').trim().toLowerCase();
+    const domains = parseList(process.env.ALLOWED_EMAIL_DOMAIN);
+    if (!EMAIL_REGEX.test(newEmail) || !domains.includes(newEmail.split('@')[1])) {
+      return res.status(400).json({ error: `Use a school email address (${domains.map(d => '@' + d).join(', ') || 'domain not configured'}).` });
+    }
+    if (req.params.id === req.user.userId) {
+      return res.status(400).json({ error: 'You cannot change your own email here.' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const taken = await User.findOne({ email: newEmail, _id: { $ne: user._id } }).select('name role');
+    if (taken) {
+      return res.status(409).json({ error: `That email already belongs to another account (${taken.name}). If it is an empty duplicate created by signing in, remove it first.` });
+    }
+    user.email = newEmail;
+    user.googleSub = undefined; // the Google identity is re-linked on their next sign-in
+    await user.save();
+    res.json({ message: `${user.name} can now sign in with ${newEmail}.`, user: { _id: user._id, email: user.email } });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not change the email.' });
   }
 });
 

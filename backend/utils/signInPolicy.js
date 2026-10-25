@@ -23,4 +23,12 @@ function decideSignIn({ payload, allowedDomains, adminEmails, existingUser, rost
   return { action: 'CREATE', role };
 }
 
-module.exports = { decideSignIn, parseList };
+// A profile is complete once onboarding is done AND a student has an ID on file.
+// (Older accounts created with "no ID yet" stay read-only until an Admin adds the ID.)
+function isProfileComplete(user) {
+  if (user.onboardingComplete === false) return false;
+  if (user.role === 'STUDENT' && !user.schoolId) return false;
+  return true;
+}
+
+module.exports = { decideSignIn, parseList, isProfileComplete };

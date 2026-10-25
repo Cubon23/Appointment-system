@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { decideSignIn } = require('./signInPolicy');
+const { decideSignIn, isProfileComplete } = require('./signInPolicy');
 
 const base = { allowedDomains: ['school.edu.ph'], adminEmails: ['boss@school.edu.ph'], existingUser: null, rosterRole: null };
 const ok = (email) => ({ email, email_verified: true });
@@ -31,4 +31,11 @@ test('archived user denied', () => {
 });
 test('no domain configured denies everyone', () => {
   assert.strictEqual(decideSignIn({ ...base, allowedDomains: [], payload: ok('a@school.edu.ph') }).action, 'DENY');
+});
+
+test('profile completeness', () => {
+  assert.ok(isProfileComplete({ role: 'STUDENT', schoolId: '2025-S00001' }));
+  assert.ok(!isProfileComplete({ role: 'STUDENT', schoolId: undefined }));        // legacy "no ID yet"
+  assert.ok(!isProfileComplete({ role: 'STUDENT', schoolId: 'X', onboardingComplete: false }));
+  assert.ok(isProfileComplete({ role: 'ADMIN' }));
 });

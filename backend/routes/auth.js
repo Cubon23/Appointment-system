@@ -5,7 +5,7 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const RosterEntry = require('../models/RosterEntry');
 const { requireAuth } = require('../middleware/auth');
-const { decideSignIn, parseList } = require('../utils/signInPolicy');
+const { decideSignIn, parseList, isProfileComplete } = require('../utils/signInPolicy');
 const { validateId } = require('../utils/idValidator');
 
 const router = express.Router();
@@ -26,7 +26,7 @@ const sessionPayload = (user) => ({
   email: user.email,
   role: user.role,
   programPosition: user.programPosition || '',
-  onboardingComplete: user.onboardingComplete !== false
+  onboardingComplete: isProfileComplete(user)
 });
 
 // POST /api/auth/google  { credential }  <- the ID token from Google's sign-in button
@@ -90,7 +90,7 @@ router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']),
   try {
     const user = await User.findById(req.user.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.onboardingComplete !== false) return res.status(400).json({ error: 'Profile is already complete.' });
+    if (isProfileComplete(user)) return res.status(400).json({ error: 'Profile is already complete.' });
 
     const { name, gender, programPosition, idValue, privacyAccepted } = req.body || {};
     if (privacyAccepted !== true) return res.status(400).json({ error: 'Please accept the Privacy Policy.' });
