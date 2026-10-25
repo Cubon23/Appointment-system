@@ -2,6 +2,8 @@ const cron = require('node-cron');
 const User              = require('../models/User');
 const Schedule          = require('../models/Schedule');
 const ConsultationHours = require('../models/ConsultationHours');
+const AddedConsultationHours = require('../models/AddedConsultationHours');
+const { manilaNow } = require('../utils/manilaTime');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Philippine timezone fix (kept from existing codebase):
@@ -109,10 +111,12 @@ const startStatusUpdater = () => {
           lastUpdate.getUTCFullYear() === ph.getUTCFullYear();
 
         // Fetch today's scheduled blocks for this faculty
-        const [classBlocks, consultBlocks] = await Promise.all([
+        const [classBlocks, officialBlocks, addedBlocks] = await Promise.all([
           Schedule.find({ facultyId: faculty._id, dayOfWeek: currentDay }).lean(),
           ConsultationHours.find({ facultyId: faculty._id, dayOfWeek: currentDay }).lean(),
+          AddedConsultationHours.find({ facultyId: faculty._id, date: manilaNow().dateStr }).lean(),
         ]);
+        const consultBlocks = [...officialBlocks, ...addedBlocks]; // added hours count as consultation time on their date
 
         const hasClassToday = classBlocks.length > 0;
 

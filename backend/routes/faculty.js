@@ -35,6 +35,8 @@ const { notify, notifyRole, resolveStudentId, fmtDate, fmtTime } = require('../u
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
+const AddedConsultationHours = require('../models/AddedConsultationHours');
+const { buildSlots, insideConsultHours, addDays, dayOfWeekOf, overlaps, MAX_PENDING_PER_SLOT } = require('../utils/slots');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -213,11 +215,21 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday) to check against recurring classes
       const dayOfWeek = aptDate.getDay(); 
 
-            const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
-      const withinHours = facultyHours.some(h => 
-        timeToMinutes(targetApt.time) >= timeToMinutes(h.startTime) && timeToMinutes(targetApt.time) < timeToMinutes(h.endTime)
-      );
-      if (!withinHours) {
+      // Faculty may shorten (never lengthen) the consultation when approving; slots default to the full hour.
+      if (req.body.duration !== undefined) {
+        const newDuration = Number(req.body.duration);
+        if (!Number.isInteger(newDuration) || newDuration < 15 || newDuration > targetApt.duration) {
+          return res.status(400).json({ error: `Duration must be between 15 minutes and ${targetApt.duration} minutes.` });
+        }
+        targetApt.duration = newDuration;
+      }
+
+      // Must still fall inside official or added consultation hours
+      const [official, added] = await Promise.all([
+        ConsultationHours.find({ facultyId }).lean(),
+        AddedConsultationHours.find({ facultyId, date: targetApt.date }).lean(),
+      ]);
+      if (!insideConsultHours({ date: targetApt.date, time: targetApt.time, duration: targetApt.duration, official, added })) {
         return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
       }
 
@@ -248,6 +260,24 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
     targetApt.status = status;
     if (status === 'CANCELLED BY STUDENT' || status === 'REJECTED') targetApt.cancelReason = reason;
     await targetApt.save();
+
+    // Approving one request for a slot declines the other pending requests that overlap it.
+    if (status === 'APPROVED' && previousStatus !== 'APPROVED') {
+      const s0 = timeToMinutes(targetApt.time), e0 = s0 + (Number(targetApt.duration) || 60);
+      const rivals = await Appointment.find({ facultyId: targetApt.facultyId, date: targetApt.date, status: 'PENDING', _id: { $ne: targetApt._id } });
+      for (const r of rivals) {
+        const rs = timeToMinutes(r.time);
+        if (!overlaps(s0, e0, rs, rs + (Number(r.duration) || 60))) continue;
+        r.status = 'REJECTED';
+        r.cancelReason = 'Another student\'s request for this time was accepted.';
+        await r.save();
+        await notify(await resolveStudentId(r), {
+          type: 'APPOINTMENT_UPDATE',
+          title: 'Consultation request declined',
+          message: `Your request on ${fmtDate(r.date)} at ${fmtTime(r.time)} was declined because the slot went to another student. Please choose another slot.`,
+        });
+      }
+    }
 
     if (status !== previousStatus) {
       const when = `${fmtDate(targetApt.date)} at ${fmtTime(targetApt.time)}`;
@@ -346,6 +376,88 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
   }
 });
 
+// Bookable slots for one faculty member over the next 4 weeks (hourly pieces of official + added hours).
+async function loadSlots(facultyId, flaggedDate = '') {
+  const today = manilaNow().dateStr;
+  const horizon = addDays(today, 28);
+  const [official, added, classes, appointments] = await Promise.all([
+    ConsultationHours.find({ facultyId }).lean(),
+    AddedConsultationHours.find({ facultyId, date: { $gte: today, $lt: horizon } }).lean(),
+    Schedule.find({ facultyId }).lean(),
+    Appointment.find({ facultyId, status: { $in: ['PENDING', 'APPROVED'] }, date: { $gte: today, $lt: horizon } }).lean(),
+  ]);
+  return buildSlots({ official, added, classes, appointments, today, nowMs: Date.now(), weeks: 4, leadHours: BOOKING_LEAD_HOURS, flaggedDate });
+}
+
+router.get('/slots/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    const faculty = await User.findOne({ _id: req.params.facultyId, role: 'FACULTY' }).select('flaggedDate');
+    if (!faculty) return res.status(404).json({ error: 'Faculty member not found.' });
+    res.json({ maxPending: MAX_PENDING_PER_SLOT, slots: await loadSlots(faculty._id, faculty.flaggedDate) });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching consultation slots.' });
+  }
+});
+
+// --- Added consultation hours: extra hours for one date, on top of the 4 official weekly hours ---
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+router.get('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const today = manilaNow().dateStr;
+    res.json(await AddedConsultationHours.find({ facultyId: req.user.userId, date: { $gte: today } }).sort({ date: 1, startTime: 1 }));
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching added hours.' });
+  }
+});
+
+router.post('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const facultyId = req.user.userId;
+    const { date, startTime, endTime } = req.body || {};
+    const today = manilaNow().dateStr;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !HHMM.test(String(startTime)) || !HHMM.test(String(endTime))) {
+      return res.status(400).json({ error: 'Choose a date, a start time and an end time.' });
+    }
+    if (date < today || date > addDays(today, 28)) return res.status(400).json({ error: 'Pick a date within the next 4 weeks.' });
+    if (dayOfWeekOf(date) === 0) return res.status(400).json({ error: 'Consultations are not held on Sundays.' });
+    const s = timeToMinutes(startTime), e = timeToMinutes(endTime);
+    if (e - s < 30) return res.status(400).json({ error: 'Added hours must be at least 30 minutes long.' });
+    if (s < 450 || s > 960 || e > 1080) return res.status(400).json({ error: 'Added hours must start between 7:30 AM and 4:00 PM and end by 6:00 PM.' });
+
+    const dow = dayOfWeekOf(date);
+    const [classes, official, added] = await Promise.all([
+      Schedule.find({ facultyId, dayOfWeek: dow }),
+      ConsultationHours.find({ facultyId, dayOfWeek: dow }),
+      AddedConsultationHours.find({ facultyId, date }),
+    ]);
+    const hit = (list) => list.some(b => overlaps(s, e, timeToMinutes(b.startTime), timeToMinutes(b.endTime)));
+    if (hit(classes)) return res.status(400).json({ error: 'That time overlaps your teaching schedule. Added hours go in your vacant time.' });
+    if (hit(official)) return res.status(400).json({ error: 'That time is already part of your weekly consultation hours.' });
+    if (hit(added)) return res.status(400).json({ error: 'You already added hours that overlap this time.' });
+
+    res.json(await AddedConsultationHours.create({ facultyId, date, startTime, endTime }));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not add the hours.' });
+  }
+});
+
+router.delete('/added-hours/:id', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const block = await AddedConsultationHours.findOne({ _id: req.params.id, facultyId: req.user.userId });
+    if (!block) return res.status(404).json({ error: 'Not found.' });
+    const s = timeToMinutes(block.startTime), e = timeToMinutes(block.endTime);
+    const open = await Appointment.find({ facultyId: block.facultyId, date: block.date, status: { $in: ['PENDING', 'APPROVED'] } });
+    if (open.some(a => overlaps(s, e, timeToMinutes(a.time), timeToMinutes(a.time) + (Number(a.duration) || 60)))) {
+      return res.status(400).json({ error: 'Students have requests in these hours. Decline or cancel them first.' });
+    }
+    await block.deleteOne();
+    res.json({ message: 'Added hours removed.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not remove the hours.' });
+  }
+});
+
 // 8. POST ROUTE: Student requests an appointment
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
@@ -356,74 +468,21 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
     }
 
     const { facultyId, date, time, studentName, studentSection, reason } = req.body;
-
-    // Duration in minutes: a whole number from 1 to 60 (max 1 hour). Defaults to 60 for older clients.
-    const MAX_DURATION_MINUTES = 60;
-    const duration = req.body.duration === undefined ? 60 : Number(req.body.duration);
-    if (!Number.isInteger(duration) || duration < 1 || duration > MAX_DURATION_MINUTES) {
-      return res.status(400).json({ error: 'Consultation duration must be between 1 minute and 1 hour.' });
-    }
-
     const studentId = req.user.userId; // from the verified login token, not the request body
 
-    const aptDate = new Date(date);
-    const dayOfWeek = aptDate.getDay(); 
-    const requestedMinutes = timeToMinutes(time); 
-
-    // 0. Block booking dates/times that have already passed
-    const [aptHour, aptMinute] = time.split(':').map(Number);
-    const requestedDateTime = new Date(date);
-    requestedDateTime.setHours(aptHour, aptMinute, 0, 0);
-
-    if (requestedDateTime < new Date()) {
-      return res.status(400).json({ 
-        error: 'Booking Denied: You cannot schedule an appointment in the past.' 
-      });
+    // The request must match a real, open slot (official or added consultation hours): this covers
+    // the 12-hour lead time, operating hours, classes, approved appointments and the faculty's
+    // out-of-office date. The duration comes from the slot, not from the student.
+    const faculty = await User.findOne({ _id: facultyId, role: 'FACULTY' }).select('flaggedDate');
+    if (!faculty) return res.status(404).json({ error: 'Faculty member not found.' });
+    const slot = (await loadSlots(faculty._id, faculty.flaggedDate)).find(x => x.date === date && x.start === time);
+    if (!slot) {
+      return res.status(400).json({ error: 'That time slot is not available. Please choose one from the faculty\'s consultation hours.' });
     }
-
-    // 0b. Requests must be made at least 12 hours before the requested time
-    if (hoursUntil(date, time) < BOOKING_LEAD_HOURS) {
-      return res.status(400).json({
-        error: `Booking Denied: Appointments must be requested at least ${BOOKING_LEAD_HOURS} hours before the requested time.`
-      });
+    if (slot.full) {
+      return res.status(400).json({ error: `This slot already has ${MAX_PENDING_PER_SLOT} pending requests. Please choose another slot.` });
     }
-
-    // Upstream Operating Hours Constraint: 7:30 AM (450 mins) to 4:00 PM (960 mins)
-    if (requestedMinutes < 450 || requestedMinutes > 960) {
-      return res.status(400).json({ 
-        error: `Booking Denied: Consultations are restricted to official operating hours (7:30 AM to 4:00 PM).` 
-      });
-    }
-
-        // Must fall inside the faculty member's declared consultation hours
-    const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
-    const withinHours = facultyHours.some(h =>
-      requestedMinutes >= timeToMinutes(h.startTime) && requestedMinutes + duration <= timeToMinutes(h.endTime)
-    );
-    if (!withinHours) {
-      return res.status(400).json({ error: 'This time and duration doesn\'t fit inside the faculty member\'s consultation hours.' });
-    }
-    // 1. Fetch the professor's immovable academic classes for this day
-    const dayClasses = await Schedule.find({ 
-      facultyId: facultyId, 
-      dayOfWeek: dayOfWeek 
-    });
-
-    // 2. Fetch the professor's ALREADY APPROVED appointments for this date
-    const approvedAppointments = await Appointment.find({
-      facultyId: facultyId,
-      date: date,
-      status: 'APPROVED'
-    });
-
-    const allExistingEvents = [...dayClasses, ...approvedAppointments];
-
-    // 3. THE INTERCEPTOR: Run the interval overlap math
-    if (isOverlapping(time, allExistingEvents, duration)) {
-      return res.status(400).json({ 
-        error: 'Booking Denied: The instructor is teaching a class or has an approved appointment at this time.' 
-      });
-    }
+    const duration = slot.duration;
 
     // 4. Anti-Spam Protocol
     const existingPending = await Appointment.findOne({
