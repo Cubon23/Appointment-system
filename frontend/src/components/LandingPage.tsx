@@ -162,7 +162,7 @@ export default function LandingPage() {
   const goTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Login State
-  // The fields already show "@gmail.com" on the right, so keep only the part before any "@"
+  // The fields already show "@antiquespride.edu.ph" on the right, so keep only the part before any "@"
   // (if someone types or pastes a full address, the domain is dropped instead of doubled).
   const cleanEmailName = (v: string) => v.replace(/@.*$/, '').replace(/\s/g, '');
   const [loginEmail, setLoginEmail] = useState('');
@@ -244,7 +244,7 @@ export default function LandingPage() {
     setIsLoggingIn(true);
     
     try {
-      const fullLoginEmail = `${loginEmail.trim()}@gmail.com`.toLowerCase();
+      const fullLoginEmail = `${loginEmail.trim()}@antiquespride.edu.ph`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/login`, {
         method: 'POST',
@@ -273,7 +273,7 @@ export default function LandingPage() {
     setIsSendingReset(true);
 
     try {
-      const fullEmail = `${forgotEmail.trim()}@gmail.com`.toLowerCase();
+      const fullEmail = `${forgotEmail.trim()}@antiquespride.edu.ph`.toLowerCase();
 
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/forgot-password`, {
         method: 'POST',
@@ -319,7 +319,7 @@ export default function LandingPage() {
                           onChange={(e) => setLoginEmail(cleanEmailName(e.target.value))}
                         />
                         <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                          @gmail.com
+                          @antiquespride.edu.ph
                         </InputRightAddon>
                       </InputGroup>
                     </FormControl>
@@ -666,7 +666,7 @@ export default function LandingPage() {
                     onChange={(e) => setForgotEmail(cleanEmailName(e.target.value))}
                   />
                   <InputRightAddon bg="gray.100" color="gray.600" fontWeight="bold">
-                    @gmail.com
+                    @antiquespride.edu.ph
                   </InputRightAddon>
                 </InputGroup>
               </FormControl>
