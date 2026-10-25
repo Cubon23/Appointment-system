@@ -309,7 +309,9 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
 // 3. GET ROUTE: Fetch schedule for a specific faculty member
 router.get('/my-schedule/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   try {
+    // Students never receive classroom locations
     const schedules = await Schedule.find({ facultyId: req.params.facultyId })
+      .select(req.user.role === 'STUDENT' ? '-room' : '')
       .sort({ dayOfWeek: 1, startTime: 1 });
     res.json(schedules);
   } catch (error) {
