@@ -8,6 +8,7 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import ProfileGate from './ProfileGate';
 import NotificationBell from './NotificationBell';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
@@ -151,6 +152,7 @@ export default function DeanDashboard() {
       <VStack spacing={4} mt="auto">
         <ChakraButton size="sm" variant="outline" color={C.navText} borderColor="gray.600" w="100%" onClick={toggleColorMode}>{colorMode === 'light' ? 'Dark Mode' : 'Light Mode'}</ChakraButton>
         <ChakraButton size="sm" colorScheme="red" w="100%" onClick={() => setLogoutOpen(true)}>Logout</ChakraButton>
+        <ProfileGate role="DEAN" />
         <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </VStack>
     </Box>

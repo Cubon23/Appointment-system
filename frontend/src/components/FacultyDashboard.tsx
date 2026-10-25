@@ -11,6 +11,7 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import ProfileGate from './ProfileGate';
 import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
@@ -791,6 +792,7 @@ const saveConsultationHours = async () => {
         >
           Logout
         </button>
+        <ProfileGate role="FACULTY" />
         <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 

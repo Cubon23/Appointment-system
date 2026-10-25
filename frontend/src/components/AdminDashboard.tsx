@@ -9,6 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import ProfileGate from './ProfileGate';
 import { statusColor, statusLabel } from './appointmentStatus';
 import AnalyticsReport from './AnalyticsReport';
 // import { QRCodeSVG } from 'qrcode.react';
@@ -325,6 +326,7 @@ export default function AdminDashboard() {
           <span>{dk ? "☀" : "☾"}</span> {dk ? "Light Mode" : "Dark Mode"}
         </button>
         <button onClick={() => setLogoutOpen(true)} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <ProfileGate role="ADMIN" />
         <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
