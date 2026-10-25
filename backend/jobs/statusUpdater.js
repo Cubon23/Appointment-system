@@ -114,9 +114,9 @@ const startStatusUpdater = () => {
         const [classBlocks, officialBlocks, addedBlocks] = await Promise.all([
           Schedule.find({ facultyId: faculty._id, dayOfWeek: currentDay }).lean(),
           ConsultationHours.find({ facultyId: faculty._id, dayOfWeek: currentDay }).lean(),
-          AddedConsultationHours.find({ facultyId: faculty._id, date: manilaNow().dateStr }).lean(),
+          AddedConsultationHours.find({ facultyId: faculty._id, dayOfWeek: currentDay }).lean(),
         ]);
-        const consultBlocks = [...officialBlocks, ...addedBlocks]; // added hours count as consultation time on their date
+        const consultBlocks = [...officialBlocks, ...addedBlocks]; // added hours count as consultation time on their weekday
 
         const hasClassToday = classBlocks.length > 0;
 

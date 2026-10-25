@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { splitIntoSlots, buildSlots, insideConsultHours, dayOfWeekOf } = require('./slots');
+const { splitIntoSlots, buildSlots, insideConsultHours, maxDurationAt, dayOfWeekOf } = require('./slots');
 
 test('splits a 2-hour block into two 1-hour slots', () => {
   assert.deepStrictEqual(splitIntoSlots('09:00', '11:00').map(s => `${s.start}-${s.end}`), ['09:00-10:00', '10:00-11:00']);
@@ -25,10 +25,10 @@ test('official weekly hours become hourly slots on the next matching date', () =
   assert.deepStrictEqual(s.map(x => `${x.date} ${x.start}`), ['2026-10-27 09:00', '2026-10-27 10:00']);
   assert.ok(s.every(x => x.kind === 'OFFICIAL' && !x.full));
 });
-test('added hours appear only on their date', () => {
-  const s = buildSlots({ ...base, added: [{ date: '2026-10-29', startTime: '13:00', endTime: '14:00' }] });
+test('added hours recur every week on their weekday', () => {
+  const s = buildSlots({ ...base, weeks: 2, added: [{ dayOfWeek: 4, startTime: '13:00', endTime: '14:00' }] });
   const a = s.filter(x => x.kind === 'ADDED');
-  assert.deepStrictEqual(a.map(x => `${x.date} ${x.start}`), ['2026-10-29 13:00']);
+  assert.deepStrictEqual(a.map(x => `${x.date} ${x.start}`), ['2026-10-29 13:00', '2026-11-05 13:00']); // Thursdays
 });
 test('slots inside the 12-hour lead time are hidden', () => {
   const s = buildSlots({ ...base, nowMs: new Date('2026-10-26T21:30:00+08:00').getTime() });
@@ -56,4 +56,17 @@ test('insideConsultHours checks the whole range', () => {
   assert.ok(insideConsultHours({ date: '2026-10-27', time: '10:00', duration: 60, ...args }));
   assert.ok(!insideConsultHours({ date: '2026-10-27', time: '10:30', duration: 60, ...args }));
   assert.ok(!insideConsultHours({ date: '2026-10-28', time: '10:00', duration: 60, ...args }));
+});
+
+test('back-to-back official and added hours form one continuous run', () => {
+  const args = { official: [{ dayOfWeek: 2, startTime: '09:00', endTime: '10:00' }], added: [{ dayOfWeek: 2, startTime: '10:00', endTime: '11:00' }] };
+  assert.ok(insideConsultHours({ date: '2026-10-27', time: '09:30', duration: 90, ...args }));
+});
+test('maxDurationAt is the rest of the continuous run, capped at 2 hours', () => {
+  const two = { official: [{ dayOfWeek: 2, startTime: '09:00', endTime: '11:00' }], added: [] };
+  assert.strictEqual(maxDurationAt({ date: '2026-10-27', time: '09:00', ...two }), 120);
+  assert.strictEqual(maxDurationAt({ date: '2026-10-27', time: '10:00', ...two }), 60);
+  assert.strictEqual(maxDurationAt({ date: '2026-10-27', time: '11:00', ...two }), 0); // outside
+  const four = { official: [{ dayOfWeek: 2, startTime: '08:00', endTime: '12:00' }], added: [] };
+  assert.strictEqual(maxDurationAt({ date: '2026-10-27', time: '08:00', ...four }), 120); // cap
 });

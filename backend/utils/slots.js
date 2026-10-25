@@ -38,7 +38,7 @@ const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 
 // Build the bookable slots for one faculty member.
 //   official:     [{dayOfWeek, startTime, endTime}]            recurring weekly
-//   added:        [{date, startTime, endTime}]                 one specific date
+//   added:        [{dayOfWeek, startTime, endTime}]            recurring weekly, on top of the official hours
 //   classes:      [{dayOfWeek, startTime, endTime}]            teaching blocks
 //   appointments: [{date, time, duration, status}]             PENDING / APPROVED matter
 //   today:        "YYYY-MM-DD" (Manila)   nowMs: epoch ms   flaggedDate: date the faculty is out
@@ -54,7 +54,7 @@ function buildSlots({ official, added, classes, appointments, today, nowMs, week
 
     const blocks = [
       ...official.filter(h => h.dayOfWeek === dow).map(h => ({ ...h, kind: 'OFFICIAL' })),
-      ...added.filter(h => h.date === date).map(h => ({ ...h, kind: 'ADDED' })),
+      ...added.filter(h => h.dayOfWeek === dow).map(h => ({ ...h, kind: 'ADDED' })),
     ];
     const dayClasses = classes.filter(c => c.dayOfWeek === dow);
     const dayApts = appointments.filter(a => a.date === date);
@@ -87,18 +87,39 @@ function buildSlots({ official, added, classes, appointments, today, nowMs, week
   return slots.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
 }
 
-// Is [time, time+duration) fully inside one official block for that date's weekday, or one added block for that date?
+// Consultation blocks for a date's weekday, merged so back-to-back blocks (e.g. official 9-10 then added
+// 10-11) count as one continuous run. Returns [[startMin, endMin], ...] sorted.
+function consultRuns({ date, official, added }) {
+  const dow = dayOfWeekOf(date);
+  const spans = [...official, ...added]
+    .filter(h => h.dayOfWeek === dow)
+    .map(h => [timeToMinutes(h.startTime), timeToMinutes(h.endTime)])
+    .sort((a, b) => a[0] - b[0]);
+  const runs = [];
+  for (const [s, e] of spans) {
+    const last = runs[runs.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else runs.push([s, e]);
+  }
+  return runs;
+}
+
+// Is [time, time+duration) fully inside one continuous run of official + added consultation hours?
 function insideConsultHours({ date, time, duration, official, added }) {
   const s = timeToMinutes(time);
   const e = s + duration;
-  const dow = dayOfWeekOf(date);
-  const blocks = [
-    ...official.filter(h => h.dayOfWeek === dow),
-    ...added.filter(h => h.date === date),
-  ];
-  return blocks.some(h => s >= timeToMinutes(h.startTime) && e <= timeToMinutes(h.endTime));
+  return consultRuns({ date, official, added }).some(([rs, re]) => s >= rs && e <= re);
+}
+
+// The longest a consultation starting at `time` can be: up to the end of the continuous run it sits in,
+// capped at MAX_CONSULT_MINUTES. Returns 0 when `time` is outside consultation hours.
+const MAX_CONSULT_MINUTES = 120;
+function maxDurationAt({ date, time, official, added }) {
+  const s = timeToMinutes(time);
+  const run = consultRuns({ date, official, added }).find(([rs, re]) => s >= rs && s < re);
+  return run ? Math.min(run[1] - s, MAX_CONSULT_MINUTES) : 0;
 }
 
 module.exports = {
-  MAX_PENDING_PER_SLOT, splitIntoSlots, buildSlots, insideConsultHours, dayOfWeekOf, addDays, overlaps,
+  MAX_PENDING_PER_SLOT, MAX_CONSULT_MINUTES, splitIntoSlots, buildSlots, insideConsultHours, maxDurationAt, consultRuns, dayOfWeekOf, addDays, overlaps,
 };

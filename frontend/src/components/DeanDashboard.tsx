@@ -11,6 +11,7 @@ import LogoutConfirm from './LogoutConfirm';
 import NotificationBell from './NotificationBell';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
+import DeanAppeals from './DeanAppeals';
 
 // === Helper function for time formatting ===
 export const formatTime = (timeStr: string) => {
@@ -30,7 +31,7 @@ export default function DeanDashboard() {
   const userName = localStorage.getItem('userName');
 
   // Unified Page State
-  const [activePage, setActivePage] = useState<'broadcast' | 'roster' | 'reports' | 'records'>('reports');
+  const [activePage, setActivePage] = useState<'broadcast' | 'roster' | 'reports' | 'records' | 'appeals'>('reports');
   
   // Custom Navy Sidebar Color palette
   const dk = colorMode === 'dark';
@@ -123,6 +124,17 @@ export default function DeanDashboard() {
           }}
         >
           Consultation Records
+        </button>
+        <button
+          onClick={() => setActivePage('appeals')}
+          style={{
+            background: activePage === 'appeals' ? C.navBg : 'transparent',
+            color: activePage === 'appeals' ? C.navActive : C.navText,
+            border: 'none', textAlign: 'left', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer',
+            fontWeight: activePage === 'appeals' ? 600 : 400
+          }}
+        >
+          Faculty Appeals
         </button>
         <button
           onClick={() => setActivePage('broadcast')}
@@ -289,10 +301,12 @@ export default function DeanDashboard() {
           </Box>
         )}
 
+        {activePage === 'appeals' && <DeanAppeals />}
+
         {activePage === 'broadcast' && (
           <DeanBroadcastPanel C={C} />
         )}
       </Box>
     </Flex>
   );
-}
+}

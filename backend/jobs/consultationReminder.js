@@ -1,6 +1,8 @@
 const cron = require('node-cron');
 const Appointment = require('../models/Appointment');
-const { notify, fmtTime } = require('../utils/notify');
+const User = require('../models/User');
+const { notify, resolveStudentId, fmtDate, fmtTime } = require('../utils/notify');
+const { sendConsultationReminderEmail } = require('../utils/mailer');
 
 // All appointment date/time strings in this system ('YYYY-MM-DD' / 'HH:MM') are entered,
 // shown, and meant to be read as Philippine local time (UTC+8) — the school is in the
@@ -38,7 +40,7 @@ const startConsultationReminder = () => {
       // narrow by date first, then filter precisely in JS with phMoment().
       const candidates = await Appointment.find({
         status: 'APPROVED',
-        reminderSent: false,
+        $or: [{ reminderSent: false }, { studentReminderSent: { $ne: true } }],
         date: { $in: [phDateString(-1), phDateString(0), phDateString(1)] },
       }).populate('facultyId', '_id name');
 
@@ -47,13 +49,39 @@ const startConsultationReminder = () => {
         if (aptMoment > now && aptMoment <= oneHourFromNow) {
           if (!apt.facultyId) continue; // orphaned record safety check
 
-          await notify(apt.facultyId._id, {
-            type: 'CONSULTATION_UPCOMING',
-            title: 'Upcoming consultation in 1 hour',
-            message: `${apt.studentName} (${apt.studentSection}) — ${fmtTime(apt.time)} today. Reason: ${apt.reason}`,
-          });
+          if (!apt.reminderSent) {
+            await notify(apt.facultyId._id, {
+              type: 'CONSULTATION_UPCOMING',
+              title: 'Upcoming consultation in 1 hour',
+              message: `${apt.studentName} (${apt.studentSection}) — ${fmtTime(apt.time)} today. Reason: ${apt.reason}`,
+            });
+            apt.reminderSent = true;
+          }
 
-          apt.reminderSent = true;
+          if (!apt.studentReminderSent) {
+            // Mark it first so a slow or failing email can never cause a second reminder next run.
+            apt.studentReminderSent = true;
+            await apt.save();
+            const studentId = await resolveStudentId(apt);
+            await notify(studentId, {
+              type: 'CONSULTATION_UPCOMING',
+              title: 'Your consultation starts in 1 hour',
+              message: `With ${apt.facultyId.name} — ${fmtTime(apt.time)} today. Purpose: ${apt.reason}`,
+            });
+            try {
+              const student = studentId ? await User.findById(studentId).select('email') : null;
+              if (student?.email) {
+                await sendConsultationReminderEmail(student.email, {
+                  facultyName: apt.facultyId.name,
+                  dateText: fmtDate(apt.date),
+                  timeText: fmtTime(apt.time),
+                  reason: apt.reason,
+                });
+              }
+            } catch (mailErr) {
+              console.error('Reminder email failed:', mailErr.message); // the in-app reminder was already sent
+            }
+          }
           await apt.save();
         }
       }

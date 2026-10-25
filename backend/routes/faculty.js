@@ -36,7 +36,7 @@ const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
 const AddedConsultationHours = require('../models/AddedConsultationHours');
-const { buildSlots, insideConsultHours, addDays, dayOfWeekOf, overlaps, MAX_PENDING_PER_SLOT } = require('../utils/slots');
+const { buildSlots, insideConsultHours, maxDurationAt, addDays, dayOfWeekOf, overlaps, MAX_PENDING_PER_SLOT } = require('../utils/slots');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -215,20 +215,23 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday) to check against recurring classes
       const dayOfWeek = aptDate.getDay(); 
 
-      // Faculty may shorten (never lengthen) the consultation when approving; slots default to the full hour.
+      // Must still fall inside official or added consultation hours
+      const [official, added] = await Promise.all([
+        ConsultationHours.find({ facultyId }).lean(),
+        AddedConsultationHours.find({ facultyId, dayOfWeek: { $gte: 1 } }).lean(),
+      ]);
+
+      // Faculty may shorten the consultation, or extend it across back-to-back consultation hours that
+      // day (up to 2 hours in total). The length can never run past the end of that continuous run.
       if (req.body.duration !== undefined) {
         const newDuration = Number(req.body.duration);
-        if (!Number.isInteger(newDuration) || newDuration < 15 || newDuration > targetApt.duration) {
-          return res.status(400).json({ error: `Duration must be between 15 minutes and ${targetApt.duration} minutes.` });
+        const maxAllowed = maxDurationAt({ date: targetApt.date, time: targetApt.time, official, added });
+        if (!Number.isInteger(newDuration) || newDuration < 15 || newDuration > Math.max(maxAllowed, targetApt.duration)) {
+          return res.status(400).json({ error: `Duration must be between 15 minutes and ${Math.max(maxAllowed, targetApt.duration)} minutes.` });
         }
         targetApt.duration = newDuration;
       }
 
-      // Must still fall inside official or added consultation hours
-      const [official, added] = await Promise.all([
-        ConsultationHours.find({ facultyId }).lean(),
-        AddedConsultationHours.find({ facultyId, date: targetApt.date }).lean(),
-      ]);
       if (!insideConsultHours({ date: targetApt.date, time: targetApt.time, duration: targetApt.duration, official, added })) {
         return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
       }
@@ -384,7 +387,7 @@ async function loadSlots(facultyId, flaggedDate = '') {
   const horizon = addDays(today, 28);
   const [official, added, classes, appointments] = await Promise.all([
     ConsultationHours.find({ facultyId }).lean(),
-    AddedConsultationHours.find({ facultyId, date: { $gte: today, $lt: horizon } }).lean(),
+    AddedConsultationHours.find({ facultyId, dayOfWeek: { $gte: 1 } }).lean(),
     Schedule.find({ facultyId }).lean(),
     Appointment.find({ facultyId, status: { $in: ['PENDING', 'APPROVED'] }, date: { $gte: today, $lt: horizon } }).lean(),
   ]);
@@ -401,13 +404,12 @@ router.get('/slots/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   }
 });
 
-// --- Added consultation hours: extra hours for one date, on top of the 4 official weekly hours ---
+// --- Added consultation hours: extra WEEKLY hours in vacant time, on top of the 4 official weekly hours ---
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 router.get('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
   try {
-    const today = manilaNow().dateStr;
-    res.json(await AddedConsultationHours.find({ facultyId: req.user.userId, date: { $gte: today } }).sort({ date: 1, startTime: 1 }));
+    res.json(await AddedConsultationHours.find({ facultyId: req.user.userId, dayOfWeek: { $gte: 1 } }).sort({ dayOfWeek: 1, startTime: 1 }));
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching added hours.' });
   }
@@ -416,39 +418,35 @@ router.get('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
 router.post('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
   try {
     const facultyId = req.user.userId;
-    const { date, startTime, endTime } = req.body || {};
-    const today = manilaNow().dateStr;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !HHMM.test(String(startTime)) || !HHMM.test(String(endTime))) {
-      return res.status(400).json({ error: 'Choose a date, a start time and an end time.' });
+    const { dayOfWeek, startTime, endTime } = req.body || {};
+    const dow = Number(dayOfWeek);
+    if (!Number.isInteger(dow) || dow < 1 || dow > 6 || !HHMM.test(String(startTime)) || !HHMM.test(String(endTime))) {
+      return res.status(400).json({ error: 'Choose a day, a start time and an end time.' });
     }
-    if (date < today || date > addDays(today, 28)) return res.status(400).json({ error: 'Pick a date within the next 4 weeks.' });
-    if (dayOfWeekOf(date) === 0) return res.status(400).json({ error: 'Consultations are not held on Sundays.' });
     const s = timeToMinutes(startTime), e = timeToMinutes(endTime);
     if (e - s < 30) return res.status(400).json({ error: 'Added hours must be at least 30 minutes long.' });
     if (s < 450 || s > 960 || e > 1080) return res.status(400).json({ error: 'Added hours must start between 7:30 AM and 4:00 PM and end by 6:00 PM.' });
 
-    const dow = dayOfWeekOf(date);
     const [classes, official, added] = await Promise.all([
       Schedule.find({ facultyId, dayOfWeek: dow }),
       ConsultationHours.find({ facultyId, dayOfWeek: dow }),
-      AddedConsultationHours.find({ facultyId, date }),
+      AddedConsultationHours.find({ facultyId, dayOfWeek: dow }),
     ]);
     const hit = (list) => list.some(b => overlaps(s, e, timeToMinutes(b.startTime), timeToMinutes(b.endTime)));
     if (hit(classes)) return res.status(400).json({ error: 'That time overlaps your teaching schedule. Added hours go in your vacant time.' });
     if (hit(official)) return res.status(400).json({ error: 'That time is already part of your weekly consultation hours.' });
     if (hit(added)) return res.status(400).json({ error: 'You already added hours that overlap this time.' });
 
-    res.json(await AddedConsultationHours.create({ facultyId, date, startTime, endTime }));
+    res.json(await AddedConsultationHours.create({ facultyId, dayOfWeek: dow, startTime, endTime }));
   } catch (error) {
     res.status(400).json({ error: error.message || 'Could not add the hours.' });
   }
 });
 
-// Upcoming added hours of any faculty member (shown on their public master schedule).
+// Weekly added hours of any faculty member (shown on their public master schedule).
 router.get('/added-hours/of/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   try {
-    const today = manilaNow().dateStr;
-    res.json(await AddedConsultationHours.find({ facultyId: req.params.facultyId, date: { $gte: today, $lt: addDays(today, 28) } }).sort({ date: 1, startTime: 1 }).select('date startTime endTime'));
+    res.json(await AddedConsultationHours.find({ facultyId: req.params.facultyId, dayOfWeek: { $gte: 1 } }).sort({ dayOfWeek: 1, startTime: 1 }).select('dayOfWeek startTime endTime'));
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching added hours.' });
   }
@@ -459,9 +457,11 @@ router.delete('/added-hours/:id', requireAuth(['FACULTY']), async (req, res) => 
     const block = await AddedConsultationHours.findOne({ _id: req.params.id, facultyId: req.user.userId });
     if (!block) return res.status(404).json({ error: 'Not found.' });
     const s = timeToMinutes(block.startTime), e = timeToMinutes(block.endTime);
-    const open = await Appointment.find({ facultyId: block.facultyId, date: block.date, status: { $in: ['PENDING', 'APPROVED'] } });
-    if (open.some(a => overlaps(s, e, timeToMinutes(a.time), timeToMinutes(a.time) + (Number(a.duration) || 60)))) {
-      return res.status(400).json({ error: 'Students have requests in these hours. Decline or cancel them first.' });
+    const today = manilaNow().dateStr;
+    const open = await Appointment.find({ facultyId: block.facultyId, date: { $gte: today }, status: { $in: ['PENDING', 'APPROVED'] } });
+    // Upcoming requests on this weekday inside the hours being removed would be left stranded.
+    if (open.some(a => dayOfWeekOf(a.date) === block.dayOfWeek && overlaps(s, e, timeToMinutes(a.time), timeToMinutes(a.time) + (Number(a.duration) || 60)))) {
+      return res.status(400).json({ error: 'Students have upcoming requests in these hours. Decline or cancel them first.' });
     }
     await block.deleteOne();
     res.json({ message: 'Added hours removed.' });

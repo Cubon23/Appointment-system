@@ -13,6 +13,7 @@ const AppointmentSchema = new mongoose.Schema({
   cancelReason: { type: String, default: '' }, // why the faculty cancelled an approved consultation
   missedAt: { type: Date },                    // when it was marked MISSED (STUDENT) / MISSED (FACULTY)
   reminderSent: { type: Boolean, default: false }, // has the 1-hour-before reminder already been sent to faculty?
+  studentReminderSent: { type: Boolean, default: false }, // ...and to the student (in-app + email)?
 
   // An appeal after a missed or cancelled consultation: students appeal to the faculty member,
   // faculty appeal to the Dean. An ACCEPTED appeal means the absence is excused.

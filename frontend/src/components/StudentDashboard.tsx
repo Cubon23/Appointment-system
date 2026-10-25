@@ -16,6 +16,7 @@ import LogoutConfirm from './LogoutConfirm';
 import { statusColor, statusLabel, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
+import AppealControls from './AppealControls';
 
 const PURPOSE_OPTIONS = [
   'Capstone / Thesis Consultation',
@@ -212,11 +213,13 @@ export default function StudentDashboard() {
   const statusGroups: Record<string, string[]> = {
     IN_CLASS: ['IN_CLASS'], IN_CONSULTATION: ['IN_CONSULTATION'], LEAVE_ABSENT: ['ON_LEAVE', 'ABSENT'],
   };
+  const namedStatuses = Object.values(statusGroups).flat();
+  const matchesStatus = (st: string) => fStatus === 'OTHER' ? !namedStatuses.includes(st) : statusGroups[fStatus].includes(st);
   const statusFiltered = faculty.filter(f =>
     f.name.toLowerCase().includes(statusSearch.toLowerCase()) &&
     (!fGender || f.gender === fGender) &&
     (!fPosition || (f.programPosition || '').trim() === fPosition) &&
-    (!fStatus || statusGroups[fStatus].includes(f.currentStatus))
+    (!fStatus || matchesStatus(f.currentStatus))
   );
 
   const matchingFaculty = faculty.filter(f => f.name.toLowerCase().includes(facultySearch.toLowerCase()));
@@ -409,6 +412,7 @@ export default function StudentDashboard() {
                   <option value="IN_CLASS">In Class</option>
                   <option value="IN_CONSULTATION">In Consultation</option>
                   <option value="LEAVE_ABSENT">On Leave / Absent</option>
+                  <option value="OTHER">Other (Available, Meeting, Break, Out of Office...)</option>
                 </Select>
               </Flex>
               <TableContainer>
@@ -613,6 +617,7 @@ export default function StudentDashboard() {
                           {['CANCELLED BY FACULTY', 'CANCELLED BY STUDENT', 'REJECTED'].includes(apt.status) && apt.cancelReason && (
                             <Text fontSize="xs" color={mutedText} mt={1}>Reason: {apt.cancelReason}</Text>
                           )}
+                          <AppealControls apt={apt} role="STUDENT" onChanged={fetchData} />
                         </Td>
                         <Td>
                           {apt.status === 'PENDING' && (
@@ -700,6 +705,7 @@ export default function StudentDashboard() {
                   const rows = [
                     ...masterData.classes.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'class', label: c.subject || 'Class', start: c.startTime, end: c.endTime })),
                     ...masterData.official.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'consult', label: 'Consultation Hours', start: c.startTime, end: c.endTime })),
+                    ...masterData.added.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'consult', label: 'Added Consultation Hours', start: c.startTime, end: c.endTime })),
                   ].sort((a, b) => (a.start > b.start ? 1 : -1));
                   return (
                     <Box key={day}>
@@ -717,19 +723,6 @@ export default function StudentDashboard() {
                     </Box>
                   );
                 })}
-                {masterData.added.length > 0 && (
-                  <Box>
-                    <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>Added consultation hours</Text>
-                    <VStack align="stretch" spacing={1} pl={2}>
-                      {masterData.added.map((h: any) => (
-                        <HStack key={h._id} justify="space-between">
-                          <Badge colorScheme="purple" textTransform="none" px={2} py={0.5} borderRadius="md">{formatDatePreview(h.date)}</Badge>
-                          <Text fontSize="xs" color={mutedText} whiteSpace="nowrap">{formatTime(h.startTime)} – {formatTime(h.endTime)}</Text>
-                        </HStack>
-                      ))}
-                    </VStack>
-                  </Box>
-                )}
               </VStack>
             )}
           </ModalBody>

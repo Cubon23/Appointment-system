@@ -76,4 +76,17 @@ async function sendResetEmail(to, link) {
   });
 }
 
-module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail };
+const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// One hour before a consultation: tells the student when and with whom.
+async function sendConsultationReminderEmail(to, { facultyName, dateText, timeText, reason }) {
+  return sendMail({
+    to,
+    subject: 'Reminder: your consultation starts in 1 hour',
+    html: `<p>This is a reminder that your consultation with <b>${esc(facultyName)}</b> starts in about 1 hour.</p>
+           <p><b>When:</b> ${esc(dateText)} at ${esc(timeText)}<br><b>Purpose:</b> ${esc(reason)}</p>
+           <p>If you can no longer attend, please cancel it in CCIS Sync so the slot can be reused.</p>`
+  });
+}
+
+module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail, sendConsultationReminderEmail };
