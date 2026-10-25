@@ -82,6 +82,31 @@ export default function StudentDashboard() {
   const [faculty, setFaculty] = useState<any[]>([]);
   const [studentSection] = useState(localStorage.getItem('programPosition') || '');
 
+  // Faculty Status: search + filters (Gender, Position, Status) and the master-schedule dialog
+  const [statusSearch, setStatusSearch] = useState('');
+  const [fGender, setFGender] = useState('');
+  const [fPosition, setFPosition] = useState('');
+  const [fStatus, setFStatus] = useState('');
+  const { isOpen: isMasterOpen, onOpen: onMasterOpen, onClose: onMasterClose } = useDisclosure();
+  const [masterFaculty, setMasterFaculty] = useState<any>(null);
+  const [masterData, setMasterData] = useState<{ classes: any[]; official: any[]; added: any[] }>({ classes: [], official: [], added: [] });
+  const [masterLoading, setMasterLoading] = useState(false);
+
+  const openMaster = (prof: any) => {
+    setMasterFaculty(prof); setMasterLoading(true); onMasterOpen();
+    const base = `${import.meta.env.VITE_API_URL}/api/faculty`;
+    Promise.all([
+      authFetch(`${base}/my-schedule/${prof._id}`).then(r => r.json()),
+      authFetch(`${base}/consultation-hours/${prof._id}`).then(r => r.json()),
+      authFetch(`${base}/added-hours/of/${prof._id}`).then(r => r.json()),
+    ])
+      .then(([classes, official, added]) => setMasterData({
+        classes: Array.isArray(classes) ? classes : [], official: Array.isArray(official) ? official : [], added: Array.isArray(added) ? added : [],
+      }))
+      .catch(() => setMasterData({ classes: [], official: [], added: [] }))
+      .finally(() => setMasterLoading(false));
+  };
+
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [facultySearch, setFacultySearch] = useState('');
   // Bookable slots for the chosen professor (hourly pieces of official + added consultation hours, next 4 weeks)
@@ -182,6 +207,17 @@ export default function StudentDashboard() {
     myRequests.forEach((r: any) => { const id = r.facultyId?._id; if (id && !seen.includes(id)) seen.push(id); });
     return seen;
   }, [myRequests]);
+
+  const positionOptions = Array.from(new Set(faculty.map(f => (f.programPosition || '').trim()).filter(Boolean))).sort();
+  const statusGroups: Record<string, string[]> = {
+    IN_CLASS: ['IN_CLASS'], IN_CONSULTATION: ['IN_CONSULTATION'], LEAVE_ABSENT: ['ON_LEAVE', 'ABSENT'],
+  };
+  const statusFiltered = faculty.filter(f =>
+    f.name.toLowerCase().includes(statusSearch.toLowerCase()) &&
+    (!fGender || f.gender === fGender) &&
+    (!fPosition || (f.programPosition || '').trim() === fPosition) &&
+    (!fStatus || statusGroups[fStatus].includes(f.currentStatus))
+  );
 
   const matchingFaculty = faculty.filter(f => f.name.toLowerCase().includes(facultySearch.toLowerCase()));
   const recommendedFaculty = recommendedIds.map(id => matchingFaculty.find(f => f._id === id)).filter(Boolean) as any[];
@@ -361,15 +397,32 @@ export default function StudentDashboard() {
 
           {activePage === 'home' && (
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Flex gap={3} mb={4} wrap="wrap">
+                <Input placeholder="Search faculty by name..." value={statusSearch} onChange={(e) => setStatusSearch(e.target.value)} maxW="280px" color={textColor} borderColor={borderColor} />
+                <Select placeholder="Gender" value={fGender} onChange={(e) => setFGender(e.target.value)} maxW="150px" color={textColor} borderColor={borderColor}>
+                  <option value="Male">Male</option><option value="Female">Female</option>
+                </Select>
+                <Select placeholder="Position" value={fPosition} onChange={(e) => setFPosition(e.target.value)} maxW="220px" color={textColor} borderColor={borderColor}>
+                  {positionOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                </Select>
+                <Select placeholder="Status" value={fStatus} onChange={(e) => setFStatus(e.target.value)} maxW="200px" color={textColor} borderColor={borderColor}>
+                  <option value="IN_CLASS">In Class</option>
+                  <option value="IN_CONSULTATION">In Consultation</option>
+                  <option value="LEAVE_ABSENT">On Leave / Absent</option>
+                </Select>
+              </Flex>
               <TableContainer>
                 <Table variant="simple" size="md">
                   <Thead><Tr><Th color={mutedText}>Faculty Name</Th><Th color={mutedText}>Live Status</Th><Th color={mutedText}>Announcements / Notices</Th></Tr></Thead>
                   <Tbody>
-                    {faculty.map((prof) => {
+                    {statusFiltered.length === 0 && (
+                      <Tr><Td colSpan={3}><Text color={mutedText} fontSize="sm">No faculty match your search or filters.</Text></Td></Tr>
+                    )}
+                    {statusFiltered.map((prof) => {
                       return (
                         <Tr key={prof._id}>
                           <Td fontWeight="bold" color={textColor}>
-                            <Text>{prof.name}</Text>
+                            <Text cursor="pointer" color="blue.500" _hover={{ textDecoration: 'underline' }} onClick={() => openMaster(prof)} title="View master schedule">{prof.name}</Text>
                             <Text fontSize="xs" color={mutedText} fontWeight="normal">{prof.programPosition}</Text>
                           </Td>
                           <Td>
@@ -635,6 +688,53 @@ export default function StudentDashboard() {
         }}
       />
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
+      <Modal isOpen={isMasterOpen} onClose={onMasterClose} size="xl" isCentered scrollBehavior="inside">
+        <ModalOverlay />
+        <ModalContent bg={cardBg}>
+          <ModalHeader color={textColor}>{masterFaculty?.name}: Master Schedule</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            {masterLoading ? <Text color={mutedText}>Loading schedule...</Text> : (
+              <VStack align="stretch" spacing={3}>
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => {
+                  const rows = [
+                    ...masterData.classes.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'class', label: c.subject || 'Class', start: c.startTime, end: c.endTime })),
+                    ...masterData.official.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'consult', label: 'Consultation Hours', start: c.startTime, end: c.endTime })),
+                  ].sort((a, b) => (a.start > b.start ? 1 : -1));
+                  return (
+                    <Box key={day}>
+                      <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>{day}</Text>
+                      {rows.length === 0 ? <Text fontSize="xs" color={mutedText} pl={2}>No scheduled hours</Text> : (
+                        <VStack align="stretch" spacing={1} pl={2}>
+                          {rows.map((r, idx) => (
+                            <HStack key={idx} justify="space-between">
+                              <Badge colorScheme={r.kind === 'class' ? 'gray' : 'green'} textTransform="none" whiteSpace="normal" px={2} py={0.5} borderRadius="md">{r.label}</Badge>
+                              <Text fontSize="xs" color={mutedText} whiteSpace="nowrap">{formatTime(r.start)} – {formatTime(r.end)}</Text>
+                            </HStack>
+                          ))}
+                        </VStack>
+                      )}
+                    </Box>
+                  );
+                })}
+                {masterData.added.length > 0 && (
+                  <Box>
+                    <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>Added consultation hours</Text>
+                    <VStack align="stretch" spacing={1} pl={2}>
+                      {masterData.added.map((h: any) => (
+                        <HStack key={h._id} justify="space-between">
+                          <Badge colorScheme="purple" textTransform="none" px={2} py={0.5} borderRadius="md">{formatDatePreview(h.date)}</Badge>
+                          <Text fontSize="xs" color={mutedText} whiteSpace="nowrap">{formatTime(h.startTime)} – {formatTime(h.endTime)}</Text>
+                        </HStack>
+                      ))}
+                    </VStack>
+                  </Box>
+                )}
+              </VStack>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
       <Modal isOpen={isSummaryOpen} onClose={onSummaryClose} isCentered>
         <ModalOverlay />
         <ModalContent>

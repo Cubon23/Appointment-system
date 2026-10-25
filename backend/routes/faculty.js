@@ -143,7 +143,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 router.get('/status', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const facultyList = await User.find({ role: 'FACULTY' })
-      .select('name programPosition currentStatus currentLocation room statusUpdatedAt statusNote')
+      .select('name gender programPosition currentStatus currentLocation room statusUpdatedAt statusNote noticeMessage flaggedDate flaggedReason')
       .sort({ name: 1 });
 
     // Compare Manila calendar days. new Date().setHours(0,0,0,0) uses the server's
@@ -441,6 +441,16 @@ router.post('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
     res.json(await AddedConsultationHours.create({ facultyId, date, startTime, endTime }));
   } catch (error) {
     res.status(400).json({ error: error.message || 'Could not add the hours.' });
+  }
+});
+
+// Upcoming added hours of any faculty member (shown on their public master schedule).
+router.get('/added-hours/of/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    const today = manilaNow().dateStr;
+    res.json(await AddedConsultationHours.find({ facultyId: req.params.facultyId, date: { $gte: today, $lt: addDays(today, 28) } }).sort({ date: 1, startTime: 1 }).select('date startTime endTime'));
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching added hours.' });
   }
 });
 
