@@ -1,6 +1,7 @@
 // Pure sign-in rules (no database, no network) so they can be unit-tested.
 
-const parseList = (v) => (v || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+// Comma-separated list from an env value. Tolerates stray quotes or <angle brackets> around entries.
+const parseList = (v) => (v || '').split(',').map(s => s.replace(/[<>"']/g, '').trim().toLowerCase()).filter(Boolean);
 
 // Google's verified ID-token payload + config + what we already know -> what to do.
 // payload: { email, email_verified, hd }   existingUser: User doc or null   rosterRole: string|null
@@ -17,6 +18,8 @@ function decideSignIn({ payload, allowedDomains, adminEmails, existingUser, rost
     if (existingUser.accountStatus === 'ARCHIVED' || existingUser.accountStatus === 'RESTRICTED') {
       return { action: 'DENY', error: 'This account is not active. Please contact the administrator.' };
     }
+    // An address listed in ADMIN_EMAILS is always an Admin, even if the account was created earlier as something else.
+    if (adminEmails.includes(email) && existingUser.role !== 'ADMIN') return { action: 'LOGIN', promoteTo: 'ADMIN' };
     return { action: 'LOGIN' };
   }
   const role = adminEmails.includes(email) ? 'ADMIN' : (rosterRole || 'STUDENT');

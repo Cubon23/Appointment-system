@@ -69,12 +69,14 @@ router.post('/google', googleLimiter, async (req, res) => {
         accountStatus: 'ACTIVE',
         onboardingComplete: false
       });
-    } else if (!user.googleSub) {
-      user.googleSub = payload.sub; // link an older account to its Google identity
-      user.isVerified = true;
-      await user.save();
-    } else if (user.googleSub !== payload.sub) {
-      return res.status(403).json({ error: 'This account is linked to a different Google account.' });
+    } else {
+      if (user.googleSub && user.googleSub !== payload.sub) {
+        return res.status(403).json({ error: 'This account is linked to a different Google account.' });
+      }
+      let changed = false;
+      if (!user.googleSub) { user.googleSub = payload.sub; user.isVerified = true; changed = true; } // link an older account to its Google identity
+      if (decision.promoteTo && user.role !== decision.promoteTo) { user.role = decision.promoteTo; changed = true; } // listed in ADMIN_EMAILS
+      if (changed) await user.save();
     }
 
     res.json(sessionPayload(user));

@@ -77,6 +77,7 @@ export default function StudentDashboard() {
   const profileComplete = localStorage.getItem('onboardingComplete') !== 'false';
   const { isOpen: isProfileOpen, onOpen: onProfileOpen, onClose: onProfileClose } = useDisclosure();
   const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
+  useEffect(() => { if (!profileComplete) onProfileOpen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { colorMode, toggleColorMode } = useColorMode();
 
   const [activePage, setActivePage] = useState('home');

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { ViewIcon, ViewOffIcon, EmailIcon, PhoneIcon, CalendarIcon, CheckCircleIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
 import GoogleSignInButton from './GoogleSignInButton';
-import OnboardingModal from './OnboardingModal';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import {
   Box, Flex, Heading, Text, Input, Button, VStack, useToast,
@@ -168,12 +167,11 @@ export default function LandingPage() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [onboarding, setOnboarding] = useState<any | null>(null);
   const [showLoginPw, setShowLoginPw] = useState(false);
 
   // Forgot Password modal state
   const { isOpen: isForgotOpen, onOpen: onForgotOpen, onClose: onForgotClose } = useDisclosure();
-  const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
+  const { isOpen: isPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
   const [forgotEmail, setForgotEmail] = useState('');
   const [isSendingReset, setIsSendingReset] = useState(false);
 
@@ -219,8 +217,7 @@ export default function LandingPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      if (data.onboardingComplete === false) setOnboarding(data); // first login: ask for the details Google can't give
-      else finishLogin(data);
+      finishLogin(data); // an incomplete profile is finished on the dashboard (ProfileGate)
     } catch (error: any) {
       toast({ title: 'Sign-in failed', description: error.message, status: 'error', position: 'top' });
     }
@@ -583,15 +580,7 @@ export default function LandingPage() {
       </Modal>
 
       {/* ================= PRIVACY POLICY MODAL ================= */}
-      <OnboardingModal
-        isOpen={!!onboarding}
-        role={onboarding?.role || ''}
-        email={onboarding?.email || ''}
-        token={onboarding?.token || ''}
-        onOpenPrivacy={onPrivacyOpen}
-        onSkip={onboarding?.role === 'STUDENT' ? () => { const d = onboarding; setOnboarding(null); finishLogin(d); } : undefined}
-        onDone={(data) => { setOnboarding(null); finishLogin(data); }}
-      />
+
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
 
       {/* Local-development link window: shown instead of the terminal when email isn't set up */}
