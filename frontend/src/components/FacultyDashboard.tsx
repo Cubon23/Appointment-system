@@ -286,6 +286,43 @@ const submitLogEntry = async (aptId: string) => {
   }
 };
 
+// Extra consultation hours for one date, on top of the 4 official weekly hours
+  const [addedHours, setAddedHours] = useState<any[]>([]);
+  const [addedForm, setAddedForm] = useState({ date: '', startTime: '', endTime: '' });
+  const loadAddedHours = () => {
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours`)
+      .then(res => res.json())
+      .then(data => setAddedHours(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  };
+  useEffect(() => { loadAddedHours(); }, []);
+
+  const addExtraHours = async () => {
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addedForm)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Added hours saved', status: 'success' });
+      setAddedForm({ date: '', startTime: '', endTime: '' });
+      loadAddedHours();
+    } catch (error: any) {
+      toast({ title: 'Could not add hours', description: error.message, status: 'error', position: 'top' });
+    }
+  };
+  const removeExtraHours = async (id: string) => {
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      loadAddedHours();
+    } catch (error: any) {
+      toast({ title: 'Could not remove', description: error.message, status: 'error', position: 'top' });
+    }
+  };
+
 const saveConsultationHours = async () => {
   if (!isValidTotal) {
     return toast({ title: 'Invalid Total', description: `Must total exactly 4 hours. Currently ${totalHours} hours.`, status: 'warning' });
@@ -498,11 +535,15 @@ const saveConsultationHours = async () => {
     }
   };
 
+  // Chosen length per pending request when approving (defaults to the requested/slot length).
+  const [approveDuration, setApproveDuration] = useState<Record<string, number>>({});
+
   const updateAppointmentStatus = async (targetApt: any, newStatus: string) => {
     try {
+      const duration = newStatus === 'APPROVED' ? approveDuration[targetApt._id] : undefined;
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(duration && duration !== targetApt.duration ? { status: newStatus, duration } : { status: newStatus })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to process appointment.');
@@ -1063,6 +1104,26 @@ const saveConsultationHours = async () => {
                 </Text>
                 <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
               </VStack>
+
+              <Box borderTopWidth="1px" borderColor={borderColor} mt={6} pt={5}>
+                <Heading size="sm" color={textColor} mb={1}>Added Consultation Hours</Heading>
+                <Text fontSize="sm" color={mutedText} mb={3}>Extra hours for one date in your vacant time, on top of your 4 weekly hours. Students can book them like any other slot.</Text>
+                <HStack mb={3}>
+                  <Input size="sm" type="date" value={addedForm.date} onChange={(e) => setAddedForm({ ...addedForm, date: e.target.value })} />
+                  <Input size="sm" type="time" value={addedForm.startTime} onChange={(e) => setAddedForm({ ...addedForm, startTime: e.target.value })} />
+                  <Input size="sm" type="time" value={addedForm.endTime} onChange={(e) => setAddedForm({ ...addedForm, endTime: e.target.value })} />
+                  <ChakraButton size="sm" colorScheme="blue" onClick={addExtraHours} isDisabled={!addedForm.date || !addedForm.startTime || !addedForm.endTime}>Add</ChakraButton>
+                </HStack>
+                <VStack align="stretch" spacing={2}>
+                  {addedHours.length === 0 && <Text fontSize="xs" color={mutedText}>No upcoming added hours.</Text>}
+                  {addedHours.map(h => (
+                    <HStack key={h._id} justify="space-between">
+                      <Text fontSize="sm" color={textColor}>{formatDate(h.date)} · {formatTime(h.startTime)} – {formatTime(h.endTime)}</Text>
+                      <ChakraButton size="xs" colorScheme="red" variant="ghost" onClick={() => removeExtraHours(h._id)}>Remove</ChakraButton>
+                    </HStack>
+                  ))}
+                </VStack>
+              </Box>
             </Box>
           </div>
         )}
@@ -1087,6 +1148,15 @@ const saveConsultationHours = async () => {
                         {apt.status === 'PENDING' && (
                           isBeforeCutoff(apt.date, apt.time) ? (
                             <HStack spacing={2}>
+                              <Select
+                                size="xs" w="110px" title="Consultation length"
+                                value={approveDuration[apt._id] ?? apt.duration ?? 60}
+                                onChange={(e) => setApproveDuration({ ...approveDuration, [apt._id]: Number(e.target.value) })}
+                              >
+                                {[apt.duration || 60, 45, 30, 15].filter((m, i, arr) => m <= (apt.duration || 60) && arr.indexOf(m) === i).map(m => (
+                                  <option key={m} value={m}>{m === 60 ? '1 hour' : `${m} min`}</option>
+                                ))}
+                              </Select>
                               <ChakraButton size="xs" colorScheme="green" onClick={() => updateAppointmentStatus(apt, 'APPROVED')}>Approve</ChakraButton>
                               <ChakraButton size="xs" colorScheme="red" onClick={() => { setCancelReason(''); setCancelMode('reject'); setCancelTarget(apt); }}>Reject</ChakraButton>
                             </HStack>
@@ -1256,4 +1326,4 @@ const saveConsultationHours = async () => {
       </main>
     </div>
   );
-}
+}
