@@ -94,9 +94,8 @@ router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']),
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (isProfileComplete(user)) return res.status(400).json({ error: 'Profile is already complete.' });
 
-    const { name, gender, programPosition, idValue, privacyAccepted } = req.body || {};
+    const { gender, programPosition, idValue, privacyAccepted } = req.body || {};
     if (privacyAccepted !== true) return res.status(400).json({ error: 'Please accept the Privacy Policy.' });
-    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required.' });
     if (!['Male', 'Female', 'Prefer not to say'].includes(gender)) return res.status(400).json({ error: 'Gender is required.' });
     if (!programPosition || !String(programPosition).trim()) {
       return res.status(400).json({ error: user.role === 'STUDENT' ? 'Program, year and section are required.' : 'Position is required.' });
@@ -112,7 +111,7 @@ router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']),
       user[field] = check.id;
     }
 
-    user.name = String(name).trim();
+    // The name stays as it came from the school Google account.
     user.gender = gender;
     user.programPosition = String(programPosition).trim();
     user.privacyAcceptedAt = new Date();

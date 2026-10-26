@@ -683,6 +683,7 @@ export default function StudentDashboard() {
         isOpen={isProfileOpen}
         role="STUDENT"
         email={localStorage.getItem('userEmail') || ''}
+        name={localStorage.getItem('userName') || ''}
         token={localStorage.getItem('token') || ''}
         onOpenPrivacy={onPrivacyOpen}
         onSkip={onProfileClose}

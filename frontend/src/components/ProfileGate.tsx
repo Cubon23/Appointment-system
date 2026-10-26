@@ -16,6 +16,7 @@ export default function ProfileGate({ role }: { role: string }) {
         isOpen={open}
         role={role}
         email={localStorage.getItem('userEmail') || ''}
+        name={localStorage.getItem('userName') || ''}
         token={localStorage.getItem('token') || ''}
         onOpenPrivacy={onPrivacyOpen}
         onSkip={role === 'STUDENT' ? () => setOpen(false) : undefined}
