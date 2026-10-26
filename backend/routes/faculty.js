@@ -152,6 +152,8 @@ router.get('/status', requireAuth(ALL_ROLES), async (req, res) => {
 
     const enriched = facultyList.map(f => {
       const obj = f.toObject();
+      // Students never receive classroom locations (also stripped from the schedule endpoint)
+      if (req.user.role === 'STUDENT') { delete obj.room; delete obj.currentLocation; }
       const updatedToday = f.statusUpdatedAt && manilaNow(new Date(f.statusUpdatedAt)).dateStr === todayManila;
       
       const scheduleDriven = obj.currentStatus === 'IN_CLASS' || obj.currentStatus === 'IN_CONSULTATION';
