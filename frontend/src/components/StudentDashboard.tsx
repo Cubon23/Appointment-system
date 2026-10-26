@@ -17,6 +17,7 @@ import { statusColor, statusLabel, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOUR
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
+import WeeklyCalendar from './WeeklyCalendar';
 
 const PURPOSE_OPTIONS = [
   'Capstone / Thesis Consultation',
@@ -694,37 +695,14 @@ export default function StudentDashboard() {
         }}
       />
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
-      <Modal isOpen={isMasterOpen} onClose={onMasterClose} size="xl" isCentered scrollBehavior="inside">
+      <Modal isOpen={isMasterOpen} onClose={onMasterClose} size="4xl" isCentered scrollBehavior="inside">
         <ModalOverlay />
         <ModalContent bg={cardBg}>
           <ModalHeader color={textColor}>{masterFaculty?.name}: Master Schedule</ModalHeader>
           <ModalCloseButton />
           <ModalBody pb={6}>
             {masterLoading ? <Text color={mutedText}>Loading schedule...</Text> : (
-              <VStack align="stretch" spacing={3}>
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => {
-                  const rows = [
-                    ...masterData.classes.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'class', label: c.subject || 'Class', start: c.startTime, end: c.endTime })),
-                    ...masterData.official.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'consult', label: 'Consultation Hours', start: c.startTime, end: c.endTime })),
-                    ...masterData.added.filter(c => c.dayOfWeek === i + 1).map(c => ({ kind: 'consult', label: 'Added Consultation Hours', start: c.startTime, end: c.endTime })),
-                  ].sort((a, b) => (a.start > b.start ? 1 : -1));
-                  return (
-                    <Box key={day}>
-                      <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>{day}</Text>
-                      {rows.length === 0 ? <Text fontSize="xs" color={mutedText} pl={2}>No scheduled hours</Text> : (
-                        <VStack align="stretch" spacing={1} pl={2}>
-                          {rows.map((r, idx) => (
-                            <HStack key={idx} justify="space-between">
-                              <Badge colorScheme={r.kind === 'class' ? 'gray' : 'green'} textTransform="none" whiteSpace="normal" px={2} py={0.5} borderRadius="md">{r.label}</Badge>
-                              <Text fontSize="xs" color={mutedText} whiteSpace="nowrap">{formatTime(r.start)} – {formatTime(r.end)}</Text>
-                            </HStack>
-                          ))}
-                        </VStack>
-                      )}
-                    </Box>
-                  );
-                })}
-              </VStack>
+              <WeeklyCalendar classes={masterData.classes} official={masterData.official} added={masterData.added} />
             )}
           </ModalBody>
         </ModalContent>
