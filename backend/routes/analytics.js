@@ -3,6 +3,8 @@ const router = express.Router();
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
 const ConsultationHours = require('../models/ConsultationHours');
+const AddedConsultationHours = require('../models/AddedConsultationHours');
+const { buildFacultyAnalytics } = require('../utils/facultyAnalytics');
 const { requireAuth } = require('../middleware/auth');
 const { manilaNow } = require('../utils/manilaTime');
 const {
@@ -205,6 +207,22 @@ router.get('/idle-hours', requireAuth(STAFF), async (req, res) => {
   } catch (error) {
     console.error('Idle-hours error:', error);
     res.status(500).json({ error: 'Could not compute idle consultation hours.' });
+  }
+});
+
+// ── A faculty member's OWN analytics: only their appointments and hours, never anyone else's ──
+router.get('/me', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const facultyId = req.user.userId;
+    const [appointments, official, added] = await Promise.all([
+      Appointment.find({ facultyId }).select('status date time duration studentId studentName studentSection reason appeal').lean(),
+      ConsultationHours.find({ facultyId }).lean(),
+      AddedConsultationHours.find({ facultyId, dayOfWeek: { $gte: 1 } }).lean(),
+    ]);
+    res.json({ generatedAt: new Date().toISOString(), ...buildFacultyAnalytics({ appointments, official, added, todayIso: manilaNow().dateStr }) });
+  } catch (error) {
+    console.error('Faculty analytics error:', error.message);
+    res.status(500).json({ error: 'Could not compute your analytics.' });
   }
 });
 

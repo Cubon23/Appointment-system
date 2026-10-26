@@ -16,12 +16,13 @@ import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOU
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
+import FacultyAnalytics from './FacultyAnalytics';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Page      = "status" | "schedule" | "requests" | "log"; 
+type Page      = "status" | "schedule" | "requests" | "log" | "analytics";
 type ViewMode  = "week" | "day";
 type EventType = "teaching" | "appointment" | "consultation" | "note";
 
@@ -746,6 +747,7 @@ const saveConsultationHours = async () => {
               // { page: "attendance", label: "Live Attendance" }, // Merged Tab
               { page: "requests", label: `Requests (${myAppointments.filter(a => a.status === 'PENDING').length})` },
               { page: "log",      label: "Consultation Log" },
+              { page: "analytics", label: "My Analytics" },
             ] as { page: Page; label: string }[]
           ).map(({ page, label }) => {
             const active = activePage === page;
@@ -1226,6 +1228,12 @@ const saveConsultationHours = async () => {
         {/* ───────────────────────────────────────────────────────────────
             PAGE: CONSULTATION LOG (Chakra UI Form)
         ─────────────────────────────────────────────────────────────── */}
+
+        {activePage === "analytics" && (
+          <Box h="100%" overflowY="auto" p={6}>
+            <FacultyAnalytics />
+          </Box>
+        )}
 
         {activePage === "log" && (
           <Box h="100%" overflowY="auto" p={6}>
