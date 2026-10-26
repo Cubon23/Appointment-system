@@ -1,8 +1,6 @@
 const cron = require('node-cron');
 const Appointment = require('../models/Appointment');
-const User = require('../models/User');
-const { notify, resolveStudentId, fmtDate, fmtTime } = require('../utils/notify');
-const { sendConsultationReminderEmail } = require('../utils/mailer');
+const { notify, resolveStudentId, fmtTime } = require('../utils/notify');
 
 // All appointment date/time strings in this system ('YYYY-MM-DD' / 'HH:MM') are entered,
 // shown, and meant to be read as Philippine local time (UTC+8) — the school is in the
@@ -59,7 +57,7 @@ const startConsultationReminder = () => {
           }
 
           if (!apt.studentReminderSent) {
-            // Mark it first so a slow or failing email can never cause a second reminder next run.
+            // Mark it first so a failure can never cause a second reminder next run. The email copy is sent by notify().
             apt.studentReminderSent = true;
             await apt.save();
             const studentId = await resolveStudentId(apt);
@@ -68,19 +66,6 @@ const startConsultationReminder = () => {
               title: 'Your consultation starts in 1 hour',
               message: `With ${apt.facultyId.name} — ${fmtTime(apt.time)} today. Purpose: ${apt.reason}`,
             });
-            try {
-              const student = studentId ? await User.findById(studentId).select('email') : null;
-              if (student?.email) {
-                await sendConsultationReminderEmail(student.email, {
-                  facultyName: apt.facultyId.name,
-                  dateText: fmtDate(apt.date),
-                  timeText: fmtTime(apt.time),
-                  reason: apt.reason,
-                });
-              }
-            } catch (mailErr) {
-              console.error('Reminder email failed:', mailErr.message); // the in-app reminder was already sent
-            }
           }
           await apt.save();
         }

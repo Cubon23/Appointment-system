@@ -78,15 +78,17 @@ async function sendResetEmail(to, link) {
 
 const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-// One hour before a consultation: tells the student when and with whom.
-async function sendConsultationReminderEmail(to, { facultyName, dateText, timeText, reason }) {
+// A plain email copy of an in-app notification (approved, declined, cancelled, reminder, appeal...).
+async function sendNotificationEmail(to, { title, message }) {
+  const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
   return sendMail({
     to,
-    subject: 'Reminder: your consultation starts in 1 hour',
-    html: `<p>This is a reminder that your consultation with <b>${esc(facultyName)}</b> starts in about 1 hour.</p>
-           <p><b>When:</b> ${esc(dateText)} at ${esc(timeText)}<br><b>Purpose:</b> ${esc(reason)}</p>
-           <p>If you can no longer attend, please cancel it in CCIS Sync so the slot can be reused.</p>`
+    subject: `CCIS Sync: ${title}`,
+    html: `<p><b>${esc(title)}</b></p>
+           <p>${esc(message)}</p>
+           <p><a href="${esc(appUrl)}">Open CCIS Sync</a></p>
+           <p style="color:#888;font-size:12px">You are receiving this because it is also in your CCIS Sync notifications.</p>`
   });
 }
 
-module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail, sendConsultationReminderEmail };
+module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail, sendNotificationEmail };
