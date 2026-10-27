@@ -10,6 +10,7 @@ interface Props {
   isOpen: boolean;
   role: string;
   email: string;
+  name?: string; // from the school Google account
   token: string;
   onDone: (data: any) => void;
   onOpenPrivacy: () => void;
@@ -17,26 +18,10 @@ interface Props {
   onSkip?: () => void;
 }
 
-// "Last name, First name, M.I." e.g. "Dela Cruz, Juan, A." (middle initial optional)
-const parseName = (raw: string): string | null => {
-  const parts = raw.split(',').map(p => p.trim().replace(/\s+/g, ' '));
-  if (parts.length < 2 || parts.length > 3) return null;
-  const [last, first, middle = ''] = parts;
-  const pat = /^\p{L}[\p{L}\s.'’-]*$/u;
-  if (!pat.test(last) || !pat.test(first)) return null;
-  if (middle) {
-    const m = middle.match(/^(\p{L})\.?$/u);
-    if (!m) return null;
-    return `${last}, ${first}, ${m[1].toUpperCase()}.`;
-  }
-  return `${last}, ${first}`;
-};
-
-export default function OnboardingModal({ isOpen, role, email, token, onDone, onOpenPrivacy, onSkip }: Props) {
+export default function OnboardingModal({ isOpen, role, email, name: googleName, token, onDone, onOpenPrivacy, onSkip }: Props) {
   const isStudent = role === 'STUDENT';
   const needsId = role !== 'ADMIN'; // students: student ID; faculty and dean: employee ID
   const idKind = isStudent ? 'STUDENT' : 'EMPLOYEE';
-  const [name, setName] = useState('');
   const [gender, setGender] = useState('');
   const [program, setProgram] = useState('');
   const [year, setYear] = useState('');
@@ -49,8 +34,6 @@ export default function OnboardingModal({ isOpen, role, email, token, onDone, on
 
   const submit = async () => {
     setError('');
-    const cleanName = parseName(name);
-    if (!cleanName) return setError('Enter your name as: Last name, First name, Middle initial (e.g. Dela Cruz, Juan, A.).');
     if (!gender) return setError('Please select your gender.');
     if (isStudent && !(program && year && section)) return setError('Please select your program, year and section.');
     if (!isStudent && !position.trim()) return setError('Please enter your position.');
@@ -63,7 +46,6 @@ export default function OnboardingModal({ isOpen, role, email, token, onDone, on
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          name: cleanName,
           gender,
           programPosition: isStudent ? `${program} ${year}${section}` : position.trim(),
           idValue: needsId ? idValue : undefined,
@@ -87,13 +69,8 @@ export default function OnboardingModal({ isOpen, role, email, token, onDone, on
         <ModalBody pb={6}>
           <VStack spacing={4} align="stretch">
             <Text fontSize="sm" color="gray.600">
-              Signed in as <b>{email}</b>. We just need a few details Google doesn't provide.
+              Signed in as <b>{googleName ? `${googleName} (${email})` : email}</b>. Your name comes from your school account. We just need a few details Google doesn't provide.
             </Text>
-            <FormControl isRequired>
-              <FormLabel>Full name</FormLabel>
-              <Input placeholder="Dela Cruz, Juan, A." value={name} onChange={e => setName(e.target.value)} />
-              <FormHelperText>Last name, First name, Middle initial (optional).</FormHelperText>
-            </FormControl>
             <FormControl isRequired>
               <FormLabel>Gender</FormLabel>
               <Select placeholder="Select" value={gender} onChange={e => setGender(e.target.value)}>

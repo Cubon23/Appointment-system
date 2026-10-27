@@ -13,6 +13,19 @@ const AppointmentSchema = new mongoose.Schema({
   cancelReason: { type: String, default: '' }, // why the faculty cancelled an approved consultation
   missedAt: { type: Date },                    // when it was marked MISSED (STUDENT) / MISSED (FACULTY)
   reminderSent: { type: Boolean, default: false }, // has the 1-hour-before reminder already been sent to faculty?
+  studentReminderSent: { type: Boolean, default: false }, // ...and to the student (in-app + email)?
+
+  // An appeal after a missed or cancelled consultation: students appeal to the faculty member,
+  // faculty appeal to the Dean. An ACCEPTED appeal means the absence is excused.
+  appeal: {
+    by:          { type: String, enum: ['STUDENT', 'FACULTY'] },
+    reason:      { type: String },
+    status:      { type: String, enum: ['PENDING', 'ACCEPTED', 'REJECTED'] },
+    submittedAt: { type: Date },
+    reviewedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt:  { type: Date },
+    reviewNote:  { type: String },
+  },
 
   // === Consultation Log fields (VAA-FM-035), filled AFTER the consultation ===
   casePresented:     { type: String },
@@ -21,4 +34,4 @@ const AppointmentSchema = new mongoose.Schema({
   completedAt:       { type: Date }
 }, { timestamps: true });
 
-module.exports = mongoose.model('Appointment', AppointmentSchema);
+module.exports = mongoose.model('Appointment', AppointmentSchema);

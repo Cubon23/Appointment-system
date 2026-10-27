@@ -76,4 +76,19 @@ async function sendResetEmail(to, link) {
   });
 }
 
-module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail };
+const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// A plain email copy of an in-app notification (approved, declined, cancelled, reminder, appeal...).
+async function sendNotificationEmail(to, { title, message }) {
+  const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+  return sendMail({
+    to,
+    subject: `CCIS Sync: ${title}`,
+    html: `<p><b>${esc(title)}</b></p>
+           <p>${esc(message)}</p>
+           <p><a href="${esc(appUrl)}">Open CCIS Sync</a></p>
+           <p style="color:#888;font-size:12px">You are receiving this because it is also in your CCIS Sync notifications.</p>`
+  });
+}
+
+module.exports = { sendMail, sendVerificationEmail, sendApprovedEmail, sendResetEmail, sendNotificationEmail };

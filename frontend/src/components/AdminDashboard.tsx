@@ -9,6 +9,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import ProfileGate from './ProfileGate';
+import SidebarIdentity from './SidebarIdentity';
 import { statusColor, statusLabel } from './appointmentStatus';
 import AnalyticsReport from './AnalyticsReport';
 // import { QRCodeSVG } from 'qrcode.react';
@@ -54,6 +56,9 @@ export default function AdminDashboard() {
   const [usersMenuOpen, setUsersMenuOpen] = useState(false); // User Management dropdown
   const [emailEdit, setEmailEdit] = useState<any | null>(null); // account being moved to a school email
   const [emailEditValue, setEmailEditValue] = useState('');
+  const [nameEdit, setNameEdit] = useState<any | null>(null);
+  const [nameEditValue, setNameEditValue] = useState('');
+  const [nameSaving, setNameSaving] = useState(false);
   const [emailSaving, setEmailSaving] = useState(false);
   const [idEdit, setIdEdit] = useState<any | null>(null);    // account whose School/Faculty ID is being added or edited
   const [idEditValue, setIdEditValue] = useState('');
@@ -143,6 +148,27 @@ export default function AdminDashboard() {
   // Quick lookup so the faculty table (which comes from the live-status list) can show IDs.
   const userById: Record<string, any> = {};
   allUsers.forEach(u => { userById[u._id] = u; });
+
+  const openNameEdit = (u: any) => { setNameEdit(u); setNameEditValue(u?.name || ''); };
+  const saveName = async () => {
+    if (!nameEdit) return;
+    setNameSaving(true);
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${nameEdit._id}/name`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameEditValue })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Name updated', description: data.message, status: 'success' });
+      setNameEdit(null);
+      fetchAllData();
+    } catch (error: any) {
+      toast({ title: 'Could not change name', description: error.message, status: 'error' });
+    }
+    setNameSaving(false);
+  };
 
   const openEmailEdit = (u: any) => { setEmailEdit(u); setEmailEditValue(''); };
   const saveEmail = async () => {
@@ -260,6 +286,8 @@ export default function AdminDashboard() {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName || ''} />
+
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[
             { page: "home", label: "Class Schedules" },
@@ -325,6 +353,7 @@ export default function AdminDashboard() {
           <span>{dk ? "☀" : "☾"}</span> {dk ? "Light Mode" : "Dark Mode"}
         </button>
         <button onClick={() => setLogoutOpen(true)} style={{ ...btnBase, padding: "9px 12px", borderRadius: "7px", background: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600 }}>Logout</button>
+        <ProfileGate role="ADMIN" />
         <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
@@ -340,7 +369,7 @@ export default function AdminDashboard() {
             {activePage === 'analytics' && "Reports & Analytics"}
             {activePage === 'records' && "Consultation Records"}
           </Heading>
-          <Text color={mutedText} mt={1}>Welcome back, {userName}</Text>
+          <Text color={mutedText} mt={1}>Welcome, {userName}</Text>
         </Box>
       
 
@@ -473,6 +502,7 @@ export default function AdminDashboard() {
                               {userById[prof._id]?.facultyId ? 'Edit ID' : 'Add ID'}
                             </ChakraButton>
                             <ChakraButton size="xs" variant="outline" onClick={() => openEmailEdit(userById[prof._id])}>Change email</ChakraButton>
+                            <ChakraButton size="xs" variant="outline" onClick={() => openNameEdit(userById[prof._id])}>Edit name</ChakraButton>
                           </HStack>
                         )}
                       </Td>
@@ -545,6 +575,7 @@ export default function AdminDashboard() {
                             {student.schoolId ? 'Edit ID' : 'Add ID'}
                           </ChakraButton>
                           <ChakraButton size="xs" variant="outline" onClick={() => openEmailEdit(student)}>Change email</ChakraButton>
+                          <ChakraButton size="xs" variant="outline" onClick={() => openNameEdit(student)}>Edit name</ChakraButton>
                         </HStack>
                       </Td>
                     </Tr>
@@ -710,6 +741,24 @@ export default function AdminDashboard() {
                 <Input placeholder="name@antiquespride.edu.ph" value={emailEditValue} onChange={(e) => setEmailEditValue(e.target.value.trim().toLowerCase())} />
               </FormControl>
               <ChakraButton colorScheme="blue" w="100%" onClick={saveEmail} isLoading={emailSaving}>Save email</ChakraButton>
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+
+        <Modal isOpen={!!nameEdit} onClose={() => setNameEdit(null)} isCentered>
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>Edit name</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody pb={6}>
+              <Text fontSize="sm" mb={3} color={mutedText}>
+                Use this to fix a name copied wrongly from the Google account (e.g. "Last, First, M.I." order). Appointments stay linked to the account.
+              </Text>
+              <FormControl isRequired mb={4}>
+                <FormLabel>Full name</FormLabel>
+                <Input value={nameEditValue} onChange={(e) => setNameEditValue(e.target.value)} />
+              </FormControl>
+              <ChakraButton colorScheme="blue" w="100%" onClick={saveName} isLoading={nameSaving}>Save name</ChakraButton>
             </ModalBody>
           </ModalContent>
         </Modal>

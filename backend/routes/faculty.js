@@ -35,6 +35,8 @@ const { notify, notifyRole, resolveStudentId, fmtDate, fmtTime } = require('../u
 const StatusHistory = require('../models/StatusHistory');
 const crypto = require('crypto'); // Built-in Node.js module for secure hashes
 const ConsultationHours = require('../models/ConsultationHours');
+const AddedConsultationHours = require('../models/AddedConsultationHours');
+const { buildSlots, insideConsultHours, maxDurationAt, addDays, dayOfWeekOf, overlaps, MAX_PENDING_PER_SLOT } = require('../utils/slots');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
@@ -141,7 +143,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 router.get('/status', requireAuth(ALL_ROLES), async (req, res) => {
   try {
     const facultyList = await User.find({ role: 'FACULTY' })
-      .select('name programPosition currentStatus currentLocation room statusUpdatedAt statusNote')
+      .select('name gender programPosition currentStatus currentLocation room statusUpdatedAt statusNote noticeMessage flaggedDate flaggedReason')
       .sort({ name: 1 });
 
     // Compare Manila calendar days. new Date().setHours(0,0,0,0) uses the server's
@@ -150,6 +152,8 @@ router.get('/status', requireAuth(ALL_ROLES), async (req, res) => {
 
     const enriched = facultyList.map(f => {
       const obj = f.toObject();
+      // Students never receive classroom locations (also stripped from the schedule endpoint)
+      if (req.user.role === 'STUDENT') { delete obj.room; delete obj.currentLocation; }
       const updatedToday = f.statusUpdatedAt && manilaNow(new Date(f.statusUpdatedAt)).dateStr === todayManila;
       
       const scheduleDriven = obj.currentStatus === 'IN_CLASS' || obj.currentStatus === 'IN_CONSULTATION';
@@ -213,11 +217,24 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
       // Get day of week (0 = Sunday, 1 = Monday) to check against recurring classes
       const dayOfWeek = aptDate.getDay(); 
 
-            const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
-      const withinHours = facultyHours.some(h => 
-        timeToMinutes(targetApt.time) >= timeToMinutes(h.startTime) && timeToMinutes(targetApt.time) < timeToMinutes(h.endTime)
-      );
-      if (!withinHours) {
+      // Must still fall inside official or added consultation hours
+      const [official, added] = await Promise.all([
+        ConsultationHours.find({ facultyId }).lean(),
+        AddedConsultationHours.find({ facultyId, dayOfWeek: { $gte: 1 } }).lean(),
+      ]);
+
+      // Faculty may shorten the consultation, or extend it across back-to-back consultation hours that
+      // day (up to 2 hours in total). The length can never run past the end of that continuous run.
+      if (req.body.duration !== undefined) {
+        const newDuration = Number(req.body.duration);
+        const maxAllowed = maxDurationAt({ date: targetApt.date, time: targetApt.time, official, added });
+        if (!Number.isInteger(newDuration) || newDuration < 15 || newDuration > Math.max(maxAllowed, targetApt.duration)) {
+          return res.status(400).json({ error: `Duration must be between 15 minutes and ${Math.max(maxAllowed, targetApt.duration)} minutes.` });
+        }
+        targetApt.duration = newDuration;
+      }
+
+      if (!insideConsultHours({ date: targetApt.date, time: targetApt.time, duration: targetApt.duration, official, added })) {
         return res.status(400).json({ error: 'This time is outside the faculty member\'s consultation hours.' });
       }
 
@@ -249,6 +266,24 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
     if (status === 'CANCELLED BY STUDENT' || status === 'REJECTED') targetApt.cancelReason = reason;
     await targetApt.save();
 
+    // Approving one request for a slot declines the other pending requests that overlap it.
+    if (status === 'APPROVED' && previousStatus !== 'APPROVED') {
+      const s0 = timeToMinutes(targetApt.time), e0 = s0 + (Number(targetApt.duration) || 60);
+      const rivals = await Appointment.find({ facultyId: targetApt.facultyId, date: targetApt.date, status: 'PENDING', _id: { $ne: targetApt._id } });
+      for (const r of rivals) {
+        const rs = timeToMinutes(r.time);
+        if (!overlaps(s0, e0, rs, rs + (Number(r.duration) || 60))) continue;
+        r.status = 'REJECTED';
+        r.cancelReason = 'Another student\'s request for this time was accepted.';
+        await r.save();
+        await notify(await resolveStudentId(r), {
+          type: 'APPOINTMENT_UPDATE',
+          title: 'Consultation request declined',
+          message: `Your request on ${fmtDate(r.date)} at ${fmtTime(r.time)} was declined because the slot went to another student. Please choose another slot.`,
+        });
+      }
+    }
+
     if (status !== previousStatus) {
       const when = `${fmtDate(targetApt.date)} at ${fmtTime(targetApt.time)}`;
       if (req.user.role === 'STUDENT') {
@@ -279,7 +314,9 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
 // 3. GET ROUTE: Fetch schedule for a specific faculty member
 router.get('/my-schedule/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
   try {
+    // Students never receive classroom locations
     const schedules = await Schedule.find({ facultyId: req.params.facultyId })
+      .select(req.user.role === 'STUDENT' ? '-room' : '')
       .sort({ dayOfWeek: 1, startTime: 1 });
     res.json(schedules);
   } catch (error) {
@@ -346,6 +383,95 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
   }
 });
 
+// Bookable slots for one faculty member over the next 4 weeks (hourly pieces of official + added hours).
+async function loadSlots(facultyId, flaggedDate = '') {
+  const today = manilaNow().dateStr;
+  const horizon = addDays(today, 28);
+  const [official, added, classes, appointments] = await Promise.all([
+    ConsultationHours.find({ facultyId }).lean(),
+    AddedConsultationHours.find({ facultyId, dayOfWeek: { $gte: 1 } }).lean(),
+    Schedule.find({ facultyId }).lean(),
+    Appointment.find({ facultyId, status: { $in: ['PENDING', 'APPROVED'] }, date: { $gte: today, $lt: horizon } }).lean(),
+  ]);
+  return buildSlots({ official, added, classes, appointments, today, nowMs: Date.now(), weeks: 4, leadHours: BOOKING_LEAD_HOURS, flaggedDate });
+}
+
+router.get('/slots/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    const faculty = await User.findOne({ _id: req.params.facultyId, role: 'FACULTY' }).select('flaggedDate');
+    if (!faculty) return res.status(404).json({ error: 'Faculty member not found.' });
+    res.json({ maxPending: MAX_PENDING_PER_SLOT, slots: await loadSlots(faculty._id, faculty.flaggedDate) });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching consultation slots.' });
+  }
+});
+
+// --- Added consultation hours: extra WEEKLY hours in vacant time, on top of the 4 official weekly hours ---
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+router.get('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    res.json(await AddedConsultationHours.find({ facultyId: req.user.userId, dayOfWeek: { $gte: 1 } }).sort({ dayOfWeek: 1, startTime: 1 }));
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching added hours.' });
+  }
+});
+
+router.post('/added-hours', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const facultyId = req.user.userId;
+    const { dayOfWeek, startTime, endTime } = req.body || {};
+    const dow = Number(dayOfWeek);
+    if (!Number.isInteger(dow) || dow < 1 || dow > 6 || !HHMM.test(String(startTime)) || !HHMM.test(String(endTime))) {
+      return res.status(400).json({ error: 'Choose a day, a start time and an end time.' });
+    }
+    const s = timeToMinutes(startTime), e = timeToMinutes(endTime);
+    if (e - s < 30) return res.status(400).json({ error: 'Added hours must be at least 30 minutes long.' });
+    if (s < 450 || s > 960 || e > 1080) return res.status(400).json({ error: 'Added hours must start between 7:30 AM and 4:00 PM and end by 6:00 PM.' });
+
+    const [classes, official, added] = await Promise.all([
+      Schedule.find({ facultyId, dayOfWeek: dow }),
+      ConsultationHours.find({ facultyId, dayOfWeek: dow }),
+      AddedConsultationHours.find({ facultyId, dayOfWeek: dow }),
+    ]);
+    const hit = (list) => list.some(b => overlaps(s, e, timeToMinutes(b.startTime), timeToMinutes(b.endTime)));
+    if (hit(classes)) return res.status(400).json({ error: 'That time overlaps your teaching schedule. Added hours go in your vacant time.' });
+    if (hit(official)) return res.status(400).json({ error: 'That time is already part of your weekly consultation hours.' });
+    if (hit(added)) return res.status(400).json({ error: 'You already added hours that overlap this time.' });
+
+    res.json(await AddedConsultationHours.create({ facultyId, dayOfWeek: dow, startTime, endTime }));
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not add the hours.' });
+  }
+});
+
+// Weekly added hours of any faculty member (shown on their public master schedule).
+router.get('/added-hours/of/:facultyId', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    res.json(await AddedConsultationHours.find({ facultyId: req.params.facultyId, dayOfWeek: { $gte: 1 } }).sort({ dayOfWeek: 1, startTime: 1 }).select('dayOfWeek startTime endTime'));
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching added hours.' });
+  }
+});
+
+router.delete('/added-hours/:id', requireAuth(['FACULTY']), async (req, res) => {
+  try {
+    const block = await AddedConsultationHours.findOne({ _id: req.params.id, facultyId: req.user.userId });
+    if (!block) return res.status(404).json({ error: 'Not found.' });
+    const s = timeToMinutes(block.startTime), e = timeToMinutes(block.endTime);
+    const today = manilaNow().dateStr;
+    const open = await Appointment.find({ facultyId: block.facultyId, date: { $gte: today }, status: { $in: ['PENDING', 'APPROVED'] } });
+    // Upcoming requests on this weekday inside the hours being removed would be left stranded.
+    if (open.some(a => dayOfWeekOf(a.date) === block.dayOfWeek && overlaps(s, e, timeToMinutes(a.time), timeToMinutes(a.time) + (Number(a.duration) || 60)))) {
+      return res.status(400).json({ error: 'Students have upcoming requests in these hours. Decline or cancel them first.' });
+    }
+    await block.deleteOne();
+    res.json({ message: 'Added hours removed.' });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not remove the hours.' });
+  }
+});
+
 // 8. POST ROUTE: Student requests an appointment
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
@@ -356,74 +482,21 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
     }
 
     const { facultyId, date, time, studentName, studentSection, reason } = req.body;
-
-    // Duration in minutes: a whole number from 1 to 60 (max 1 hour). Defaults to 60 for older clients.
-    const MAX_DURATION_MINUTES = 60;
-    const duration = req.body.duration === undefined ? 60 : Number(req.body.duration);
-    if (!Number.isInteger(duration) || duration < 1 || duration > MAX_DURATION_MINUTES) {
-      return res.status(400).json({ error: 'Consultation duration must be between 1 minute and 1 hour.' });
-    }
-
     const studentId = req.user.userId; // from the verified login token, not the request body
 
-    const aptDate = new Date(date);
-    const dayOfWeek = aptDate.getDay(); 
-    const requestedMinutes = timeToMinutes(time); 
-
-    // 0. Block booking dates/times that have already passed
-    const [aptHour, aptMinute] = time.split(':').map(Number);
-    const requestedDateTime = new Date(date);
-    requestedDateTime.setHours(aptHour, aptMinute, 0, 0);
-
-    if (requestedDateTime < new Date()) {
-      return res.status(400).json({ 
-        error: 'Booking Denied: You cannot schedule an appointment in the past.' 
-      });
+    // The request must match a real, open slot (official or added consultation hours): this covers
+    // the 12-hour lead time, operating hours, classes, approved appointments and the faculty's
+    // out-of-office date. The duration comes from the slot, not from the student.
+    const faculty = await User.findOne({ _id: facultyId, role: 'FACULTY' }).select('flaggedDate');
+    if (!faculty) return res.status(404).json({ error: 'Faculty member not found.' });
+    const slot = (await loadSlots(faculty._id, faculty.flaggedDate)).find(x => x.date === date && x.start === time);
+    if (!slot) {
+      return res.status(400).json({ error: 'That time slot is not available. Please choose one from the faculty\'s consultation hours.' });
     }
-
-    // 0b. Requests must be made at least 12 hours before the requested time
-    if (hoursUntil(date, time) < BOOKING_LEAD_HOURS) {
-      return res.status(400).json({
-        error: `Booking Denied: Appointments must be requested at least ${BOOKING_LEAD_HOURS} hours before the requested time.`
-      });
+    if (slot.full) {
+      return res.status(400).json({ error: `This slot already has ${MAX_PENDING_PER_SLOT} pending requests. Please choose another slot.` });
     }
-
-    // Upstream Operating Hours Constraint: 7:30 AM (450 mins) to 4:00 PM (960 mins)
-    if (requestedMinutes < 450 || requestedMinutes > 960) {
-      return res.status(400).json({ 
-        error: `Booking Denied: Consultations are restricted to official operating hours (7:30 AM to 4:00 PM).` 
-      });
-    }
-
-        // Must fall inside the faculty member's declared consultation hours
-    const facultyHours = await ConsultationHours.find({ facultyId, dayOfWeek });
-    const withinHours = facultyHours.some(h =>
-      requestedMinutes >= timeToMinutes(h.startTime) && requestedMinutes + duration <= timeToMinutes(h.endTime)
-    );
-    if (!withinHours) {
-      return res.status(400).json({ error: 'This time and duration doesn\'t fit inside the faculty member\'s consultation hours.' });
-    }
-    // 1. Fetch the professor's immovable academic classes for this day
-    const dayClasses = await Schedule.find({ 
-      facultyId: facultyId, 
-      dayOfWeek: dayOfWeek 
-    });
-
-    // 2. Fetch the professor's ALREADY APPROVED appointments for this date
-    const approvedAppointments = await Appointment.find({
-      facultyId: facultyId,
-      date: date,
-      status: 'APPROVED'
-    });
-
-    const allExistingEvents = [...dayClasses, ...approvedAppointments];
-
-    // 3. THE INTERCEPTOR: Run the interval overlap math
-    if (isOverlapping(time, allExistingEvents, duration)) {
-      return res.status(400).json({ 
-        error: 'Booking Denied: The instructor is teaching a class or has an approved appointment at this time.' 
-      });
-    }
+    const duration = slot.duration;
 
     // 4. Anti-Spam Protocol
     const existingPending = await Appointment.findOne({
@@ -593,6 +666,23 @@ router.patch('/users/:id/email', requireAuth(['ADMIN']), async (req, res) => {
   }
 });
 
+// ADMIN: correct a user's display name (Google names are copied once at account creation).
+router.patch('/users/:id/name', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const name = String(req.body.name || '').replace(/\s+/g, ' ').trim();
+    if (name.length < 2 || name.length > 100) {
+      return res.status(400).json({ error: 'Name must be 2 to 100 characters.' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.name = name;
+    await user.save();
+    res.json({ message: `Name updated to ${name}.`, user: { _id: user._id, name: user.name } });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not change the name.' });
+  }
+});
+
 // 12. GET ROUTE: Fetch appointments for one specific faculty member
 router.get('/appointments/me/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']), ownerOrStaff(r => r.params.facultyId), async (req, res) => {
   try {
@@ -703,6 +793,87 @@ router.put('/flag-date/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.i
 // 15. GET ROUTE: Fetch appointments for one specific student
 // NOTE: previously matched by studentName (string), which meant two students sharing the
 // same name could see each other's appointments. Now scoped to the actual account's ID.
+// ---- Appeals -------------------------------------------------------------------------------
+// Students appeal a missed / cancelled consultation to the faculty member; faculty appeal theirs to the Dean.
+const APPEALABLE = {
+  STUDENT: ['MISSED (STUDENT)', 'CANCELLED BY STUDENT'],
+  FACULTY: ['MISSED (FACULTY)', 'CANCELLED BY FACULTY'],
+};
+
+router.post('/appointment/:id/appeal', requireAuth(['STUDENT', 'FACULTY']), async (req, res) => {
+  try {
+    const apt = await Appointment.findById(req.params.id);
+    if (!apt) return res.status(404).json({ error: 'Appointment not found.' });
+    const role = req.user.role;
+    const mine = role === 'FACULTY'
+      ? String(apt.facultyId) === String(req.user.userId)
+      : String(apt.studentId) === String(req.user.userId);
+    if (!mine) return res.status(403).json({ error: 'Forbidden' });
+    if (!APPEALABLE[role].includes(apt.status)) {
+      return res.status(400).json({ error: 'Only a missed or cancelled consultation can be appealed.' });
+    }
+    if (apt.appeal && apt.appeal.status) return res.status(400).json({ error: 'You already submitted an appeal for this consultation.' });
+    const reason = String(req.body.reason || '').trim().slice(0, 300);
+    if (!reason) return res.status(400).json({ error: 'Please select or enter a reason.' });
+
+    apt.appeal = { by: role, reason, status: 'PENDING', submittedAt: new Date() };
+    await apt.save();
+
+    const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
+    if (role === 'STUDENT') {
+      await notify(apt.facultyId, { type: 'APPEAL', title: 'Student appeal', message: `${apt.studentName} appealed the consultation on ${when}. Reason: ${reason}` });
+    } else {
+      const me = await User.findById(req.user.userId).select('name');
+      await notifyRole('DEAN', { type: 'APPEAL', title: 'Faculty appeal', message: `${me ? me.name : 'A faculty member'} appealed the consultation with ${apt.studentName} on ${when}. Reason: ${reason}` });
+    }
+    res.json({ message: 'Appeal submitted.', appointment: apt });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error submitting the appeal.' });
+  }
+});
+
+// The Dean's list of faculty appeals
+router.get('/appeals', requireAuth(['DEAN']), async (req, res) => {
+  try {
+    const list = await Appointment.find({ 'appeal.by': 'FACULTY' }).populate('facultyId', 'name').sort({ 'appeal.submittedAt': -1 });
+    res.json(list);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching appeals.' });
+  }
+});
+
+// Review an appeal: the faculty member for student appeals, the Dean for faculty appeals.
+router.patch('/appointment/:id/appeal', requireAuth(['FACULTY', 'DEAN']), async (req, res) => {
+  try {
+    const apt = await Appointment.findById(req.params.id);
+    if (!apt || !apt.appeal || apt.appeal.status !== 'PENDING') return res.status(404).json({ error: 'No pending appeal found.' });
+    const allowed = req.user.role === 'DEAN'
+      ? apt.appeal.by === 'FACULTY'
+      : apt.appeal.by === 'STUDENT' && String(apt.facultyId) === String(req.user.userId);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+    const decision = req.body.decision;
+    if (!['ACCEPTED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Choose accept or decline.' });
+
+    apt.appeal.status = decision;
+    apt.appeal.reviewedBy = req.user.userId;
+    apt.appeal.reviewedAt = new Date();
+    apt.appeal.reviewNote = String(req.body.note || '').trim().slice(0, 300);
+    await apt.save();
+
+    const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
+    const verdict = decision === 'ACCEPTED' ? 'accepted (excused)' : 'declined';
+    const appellant = apt.appeal.by === 'STUDENT' ? await resolveStudentId(apt) : apt.facultyId;
+    await notify(appellant, {
+      type: 'APPEAL',
+      title: `Appeal ${decision === 'ACCEPTED' ? 'accepted' : 'declined'}`,
+      message: `Your appeal for the consultation on ${when} was ${verdict}.${apt.appeal.reviewNote ? ` Note: ${apt.appeal.reviewNote}` : ''}`,
+    });
+    res.json({ message: `Appeal ${verdict}.`, appointment: apt });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error reviewing the appeal.' });
+  }
+});
+
 router.get('/appointments/student/:studentId', requireAuth(['STUDENT','ADMIN','DEAN']), ownerOrStaff(r => r.params.studentId), async (req, res) => {
   try {
     const appointments = await Appointment.find({ studentId: req.params.studentId })

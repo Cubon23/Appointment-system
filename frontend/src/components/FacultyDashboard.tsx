@@ -11,15 +11,21 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
+import ProfileGate from './ProfileGate';
 import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
+import AppealControls from './AppealControls';
+import FacultyAnalytics from './FacultyAnalytics';
+import SidebarIdentity from './SidebarIdentity';
+import WelcomeHeader from './WelcomeHeader';
+import ProfilePage from './ProfilePage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Page      = "status" | "schedule" | "requests" | "log"; 
+type Page      = "status" | "schedule" | "requests" | "log" | "analytics" | "profile";
 type ViewMode  = "week" | "day";
 type EventType = "teaching" | "appointment" | "consultation" | "note";
 
@@ -42,6 +48,7 @@ interface ScheduleEvent {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const timeToMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const START_HOUR = 7;
 const END_HOUR   = 20;
 const SLOT_PX = 30; 
@@ -286,6 +293,43 @@ const submitLogEntry = async (aptId: string) => {
   }
 };
 
+// Extra WEEKLY consultation hours in vacant time, on top of the 4 official weekly hours
+  const [addedHours, setAddedHours] = useState<any[]>([]);
+  const [addedForm, setAddedForm] = useState({ dayOfWeek: 1, startTime: '', endTime: '' });
+  const loadAddedHours = () => {
+    authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours`)
+      .then(res => res.json())
+      .then(data => setAddedHours(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  };
+  useEffect(() => { loadAddedHours(); }, []);
+
+  const addExtraHours = async () => {
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addedForm)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Added hours saved', status: 'success' });
+      setAddedForm({ dayOfWeek: addedForm.dayOfWeek, startTime: '', endTime: '' });
+      loadAddedHours();
+    } catch (error: any) {
+      toast({ title: 'Could not add hours', description: error.message, status: 'error', position: 'top' });
+    }
+  };
+  const removeExtraHours = async (id: string) => {
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/added-hours/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      loadAddedHours();
+    } catch (error: any) {
+      toast({ title: 'Could not remove', description: error.message, status: 'error', position: 'top' });
+    }
+  };
+
 const saveConsultationHours = async () => {
   if (!isValidTotal) {
     return toast({ title: 'Invalid Total', description: `Must total exactly 4 hours. Currently ${totalHours} hours.`, status: 'warning' });
@@ -498,11 +542,37 @@ const saveConsultationHours = async () => {
     }
   };
 
+  // Chosen length per pending request when approving (defaults to the requested/slot length).
+  // Lengths the faculty can approve: shorter than the slot, or longer when the following consultation
+  // hours that day run back-to-back (official + added), up to 2 hours in total.
+  const durationOptions = (apt: any): number[] => {
+    const start = timeToMin(apt.time);
+    const dow = new Date(`${apt.date}T00:00:00Z`).getUTCDay();
+    const spans = [...consultBlocks, ...addedHours]
+      .filter((b: any) => Number(b.dayOfWeek) === dow && b.startTime && b.endTime)
+      .map((b: any) => [timeToMin(b.startTime), timeToMin(b.endTime)] as [number, number])
+      .sort((a, b) => a[0] - b[0]);
+    const runs: [number, number][] = [];
+    for (const [s, e] of spans) {
+      const last = runs[runs.length - 1];
+      if (last && s <= last[1]) last[1] = Math.max(last[1], e); else runs.push([s, e]);
+    }
+    const run = runs.find(([s, e]) => start >= s && start < e);
+    const base = apt.duration || 60;
+    const max = Math.max(base, run ? Math.min(run[1] - start, 120) : base);
+    const out: number[] = [];
+    for (let m = 15; m <= max; m += 15) out.push(m);
+    if (!out.includes(base)) out.push(base);
+    return out.sort((a, b) => a - b);
+  };
+  const [approveDuration, setApproveDuration] = useState<Record<string, number>>({});
+
   const updateAppointmentStatus = async (targetApt: any, newStatus: string) => {
     try {
+      const duration = newStatus === 'APPROVED' ? approveDuration[targetApt._id] : undefined;
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment/${targetApt._id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(duration && duration !== targetApt.duration ? { status: newStatus, duration } : { status: newStatus })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to process appointment.');
@@ -670,6 +740,7 @@ const saveConsultationHours = async () => {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName || ''} onClick={() => setActivePage("profile")} active={activePage === "profile"} />
         <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -680,6 +751,7 @@ const saveConsultationHours = async () => {
               // { page: "attendance", label: "Live Attendance" }, // Merged Tab
               { page: "requests", label: `Requests (${myAppointments.filter(a => a.status === 'PENDING').length})` },
               { page: "log",      label: "Consultation Log" },
+              { page: "analytics", label: "My Analytics" },
             ] as { page: Page; label: string }[]
           ).map(({ page, label }) => {
             const active = activePage === page;
@@ -726,6 +798,7 @@ const saveConsultationHours = async () => {
         >
           Logout
         </button>
+        <ProfileGate role="FACULTY" />
         <LogoutConfirm isOpen={logoutOpen} onClose={() => setLogoutOpen(false)} onConfirm={() => { localStorage.clear(); navigate('/'); }} />
       </aside>
 
@@ -733,6 +806,7 @@ const saveConsultationHours = async () => {
           MAIN CONTENT
       ═══════════════════════════════════════════════════════════════════ */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <WelcomeHeader name={userName || ''} />
         <BroadcastBanner userRole="FACULTY" />
 
         {/* ───────────────────────────────────────────────────────────────
@@ -1063,6 +1137,28 @@ const saveConsultationHours = async () => {
                 </Text>
                 <ChakraButton colorScheme="blue" onClick={saveConsultationHours} isDisabled={!isValidTotal}>Save Consultation Hours</ChakraButton>
               </VStack>
+
+              <Box borderTopWidth="1px" borderColor={borderColor} mt={6} pt={5}>
+                <Heading size="sm" color={textColor} mb={1}>Added Consultation Hours</Heading>
+                <Text fontSize="sm" color={mutedText} mb={3}>Extra weekly hours in your vacant time, on top of your 4 fixed hours. They repeat every week, and students can book them like any other slot.</Text>
+                <HStack mb={3}>
+                  <Select size="sm" value={addedForm.dayOfWeek} onChange={(e) => setAddedForm({ ...addedForm, dayOfWeek: Number(e.target.value) })}>
+                    {DAY_LABELS.map((d, idx) => <option key={idx} value={idx + 1}>{d}</option>)}
+                  </Select>
+                  <Input size="sm" type="time" value={addedForm.startTime} onChange={(e) => setAddedForm({ ...addedForm, startTime: e.target.value })} />
+                  <Input size="sm" type="time" value={addedForm.endTime} onChange={(e) => setAddedForm({ ...addedForm, endTime: e.target.value })} />
+                  <ChakraButton size="sm" colorScheme="blue" onClick={addExtraHours} isDisabled={!addedForm.startTime || !addedForm.endTime}>Add</ChakraButton>
+                </HStack>
+                <VStack align="stretch" spacing={2}>
+                  {addedHours.length === 0 && <Text fontSize="xs" color={mutedText}>No added hours yet.</Text>}
+                  {addedHours.map(h => (
+                    <HStack key={h._id} justify="space-between">
+                      <Text fontSize="sm" color={textColor}>Every {DAY_LABELS[h.dayOfWeek - 1]} · {formatTime(h.startTime)} – {formatTime(h.endTime)}</Text>
+                      <ChakraButton size="xs" colorScheme="red" variant="ghost" onClick={() => removeExtraHours(h._id)}>Remove</ChakraButton>
+                    </HStack>
+                  ))}
+                </VStack>
+              </Box>
             </Box>
           </div>
         )}
@@ -1082,11 +1178,23 @@ const saveConsultationHours = async () => {
                       <Td fontWeight="bold" color={textColor}>{apt.studentName} ({apt.studentSection})</Td>
                       <Td color={textColor}>{formatDate(apt.date)} at {formatTime(apt.time)}</Td>
                       <Td maxW="200px" isTruncated color={textColor}>{apt.reason}</Td>
-                      <Td><Badge colorScheme={statusColor(apt.status)}>{statusLabel(apt.status)}</Badge></Td>
+                      <Td>
+                        <Badge colorScheme={statusColor(apt.status)}>{statusLabel(apt.status)}</Badge>
+                        <AppealControls apt={apt} role="FACULTY" onChanged={fetchData} />
+                      </Td>
                       <Td>
                         {apt.status === 'PENDING' && (
                           isBeforeCutoff(apt.date, apt.time) ? (
                             <HStack spacing={2}>
+                              <Select
+                                size="xs" w="110px" title="Consultation length"
+                                value={approveDuration[apt._id] ?? apt.duration ?? 60}
+                                onChange={(e) => setApproveDuration({ ...approveDuration, [apt._id]: Number(e.target.value) })}
+                              >
+                                {durationOptions(apt).map(m => (
+                                  <option key={m} value={m}>{m % 60 === 0 ? `${m / 60} hour${m > 60 ? 's' : ''}` : `${m} min`}</option>
+                                ))}
+                              </Select>
                               <ChakraButton size="xs" colorScheme="green" onClick={() => updateAppointmentStatus(apt, 'APPROVED')}>Approve</ChakraButton>
                               <ChakraButton size="xs" colorScheme="red" onClick={() => { setCancelReason(''); setCancelMode('reject'); setCancelTarget(apt); }}>Reject</ChakraButton>
                             </HStack>
@@ -1125,6 +1233,19 @@ const saveConsultationHours = async () => {
         {/* ───────────────────────────────────────────────────────────────
             PAGE: CONSULTATION LOG (Chakra UI Form)
         ─────────────────────────────────────────────────────────────── */}
+
+        {activePage === "profile" && (
+          <Box h="100%" overflowY="auto" p={6}>
+            <Heading size="md" color={textColor} mb={4}>My Profile</Heading>
+            <ProfilePage />
+          </Box>
+        )}
+
+        {activePage === "analytics" && (
+          <Box h="100%" overflowY="auto" p={6}>
+            <FacultyAnalytics />
+          </Box>
+        )}
 
         {activePage === "log" && (
           <Box h="100%" overflowY="auto" p={6}>
@@ -1256,4 +1377,4 @@ const saveConsultationHours = async () => {
       </main>
     </div>
   );
-}
+}

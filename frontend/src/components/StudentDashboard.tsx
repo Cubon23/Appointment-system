@@ -13,10 +13,15 @@ import {
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
-import { statusColor, statusLabel, hoursUntil, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
+import { statusColor, statusLabel, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
-import DurationPicker from './DurationPicker';
+import AppealControls from './AppealControls';
+import WeeklyCalendar from './WeeklyCalendar';
+import SidebarIdentity from './SidebarIdentity';
+import WelcomeHeader from './WelcomeHeader';
+import ProfilePage from './ProfilePage';
+import { manilaToday, addDaysIso, mondayOf, weeksBetween, weekLabel, dayHeading } from '../utils/weekUtils';
 
 const PURPOSE_OPTIONS = [
   'Capstone / Thesis Consultation',
@@ -67,8 +72,6 @@ const getStatusLabel = (status: string) => {
 };
 
 // Matches the dayOfWeek convention used on the faculty side (1 = Mon ... 6 = Sat)
-const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -79,20 +82,46 @@ export default function StudentDashboard() {
   const profileComplete = localStorage.getItem('onboardingComplete') !== 'false';
   const { isOpen: isProfileOpen, onOpen: onProfileOpen, onClose: onProfileClose } = useDisclosure();
   const { isOpen: isPrivacyOpen, onOpen: onPrivacyOpen, onClose: onPrivacyClose } = useDisclosure();
+  useEffect(() => { if (!profileComplete) onProfileOpen(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { colorMode, toggleColorMode } = useColorMode();
 
   const [activePage, setActivePage] = useState('home');
   const [faculty, setFaculty] = useState<any[]>([]);
   const [studentSection] = useState(localStorage.getItem('programPosition') || '');
 
+  // Faculty Status: search + filters (Gender, Position, Status) and the master-schedule dialog
+  const [statusSearch, setStatusSearch] = useState('');
+  const [fGender, setFGender] = useState('');
+  const [fPosition, setFPosition] = useState('');
+  const [fStatus, setFStatus] = useState('');
+  const { isOpen: isMasterOpen, onOpen: onMasterOpen, onClose: onMasterClose } = useDisclosure();
+  const [masterFaculty, setMasterFaculty] = useState<any>(null);
+  const [masterData, setMasterData] = useState<{ classes: any[]; official: any[]; added: any[] }>({ classes: [], official: [], added: [] });
+  const [masterLoading, setMasterLoading] = useState(false);
+
+  const openMaster = (prof: any) => {
+    setMasterFaculty(prof); setMasterLoading(true); onMasterOpen();
+    const base = `${import.meta.env.VITE_API_URL}/api/faculty`;
+    Promise.all([
+      authFetch(`${base}/my-schedule/${prof._id}`).then(r => r.json()),
+      authFetch(`${base}/consultation-hours/${prof._id}`).then(r => r.json()),
+      authFetch(`${base}/added-hours/of/${prof._id}`).then(r => r.json()),
+    ])
+      .then(([classes, official, added]) => setMasterData({
+        classes: Array.isArray(classes) ? classes : [], official: Array.isArray(official) ? official : [], added: Array.isArray(added) ? added : [],
+      }))
+      .catch(() => setMasterData({ classes: [], official: [], added: [] }))
+      .finally(() => setMasterLoading(false));
+  };
+
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [facultySearch, setFacultySearch] = useState('');
-  const [facultySchedule, setFacultySchedule] = useState<any[]>([]);
-  const [facultyConsultHours, setFacultyConsultHours] = useState<any[]>([]);
+  // Bookable slots for the chosen professor (hourly pieces of official + added consultation hours, next 4 weeks)
+  const [slots, setSlots] = useState<any[]>([]);
+  const [maxPending, setMaxPending] = useState(3);
   const [scheduleLoading, setScheduleLoading] = useState(false);
-  const [aptDate, setAptDate] = useState('');
-  const [aptTime, setAptTime] = useState('');
-  const [aptDuration, setAptDuration] = useState('30');
+  const [selectedSlot, setSelectedSlot] = useState(''); // "YYYY-MM-DD|HH:MM"
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = the current week; the booking window is 4 weeks ahead
   const [aptReason, setAptReason] = useState('');
   const [aptPurpose, setAptPurpose] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -150,58 +179,72 @@ export default function StudentDashboard() {
     return () => clearInterval(intervalId);
   }, [userId]);
 
-  // When a professor is chosen, pull their weekly hours so the student can pick
-  // a real open slot. We only ever read startTime/endTime/dayOfWeek from these
-  // responses below — subject, room, and any faculty-private notes are never
-  // rendered, regardless of what the API happens to include.
+  // When a professor is chosen, load their open consultation slots. Refreshed every 15 s so the
+  // pending counts and taken slots stay current while the student is choosing.
   useEffect(() => {
-    if (!selectedFaculty) {
-      setFacultySchedule([]);
-      setFacultyConsultHours([]);
-      return;
-    }
-    setScheduleLoading(true);
-    Promise.all([
-      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/my-schedule/${selectedFaculty}`).then(res => res.json()),
-      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/consultation-hours/${selectedFaculty}`).then(res => res.json())
-    ])
-      .then(([schedule, consultHours]) => {
-        setFacultySchedule(Array.isArray(schedule) ? schedule : []);
-        setFacultyConsultHours(Array.isArray(consultHours) ? consultHours : []);
-      })
-      .catch(() => {
-        setFacultySchedule([]);
-        setFacultyConsultHours([]);
-      })
-      .finally(() => setScheduleLoading(false));
+    setSelectedSlot('');
+    setWeekOffset(0);
+    if (!selectedFaculty) { setSlots([]); return; }
+    let alive = true;
+    const load = (first: boolean) => {
+      if (first) setScheduleLoading(true);
+      authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/slots/${selectedFaculty}`)
+        .then(res => res.json())
+        .then(data => { if (alive && Array.isArray(data.slots)) { setSlots(data.slots); setMaxPending(data.maxPending || 3); } })
+        .catch(() => { if (alive && first) setSlots([]); })
+        .finally(() => { if (alive && first) setScheduleLoading(false); });
+    };
+    load(true);
+    const id = setInterval(() => load(false), 15000);
+    return () => { alive = false; clearInterval(id); };
   }, [selectedFaculty]);
 
-  // Build a day-by-day list of blocked ("Class Hours") vs bookable ("Consultation Hours")
-  // time ranges. Only startTime/endTime/dayOfWeek are read from the source objects.
-  const weeklyHoursByDay = React.useMemo(() => {
-    const byDay: Record<number, { label: string; kind: 'class' | 'consult'; start: string; end: string }[]> = {};
-    for (let i = 0; i < 6; i++) byDay[i] = [];
+  // Slots grouped by date for the weekly-hours panel.
+  const slotsByDate = React.useMemo(() => {
+    const m: Record<string, any[]> = {};
+    slots.forEach(sl => { (m[sl.date] = m[sl.date] || []).push(sl); });
+    return Object.entries(m);
+  }, [slots]);
 
-    facultySchedule.forEach((sched: any) => {
-      const dayIndex = (sched.dayOfWeek ?? 1) - 1;
-      if (dayIndex < 0 || dayIndex > 5) return;
-      // Show the subject name only; the room is intentionally not displayed to students.
-      byDay[dayIndex].push({ label: sched.subject || 'Class', kind: 'class', start: sched.startTime, end: sched.endTime });
-    });
+  // Week-by-week view: Monday to Sunday, never earlier than the current week, never past the booking window.
+  const todayIso = manilaToday();
+  const thisMonday = mondayOf(todayIso);
+  const maxWeekOffset = weeksBetween(thisMonday, mondayOf(addDaysIso(todayIso, 27)));
+  const weekStart = addDaysIso(thisMonday, weekOffset * 7);
+  const weekEnd = addDaysIso(weekStart, 6);
+  const weekSlotsByDate = slotsByDate.filter(([date]) => date >= weekStart && date <= weekEnd);
 
-    facultyConsultHours.forEach((block: any) => {
-      const dayIndex = (block.dayOfWeek ?? 1) - 1;
-      if (dayIndex < 0 || dayIndex > 5) return;
-      byDay[dayIndex].push({ label: 'Consultation Hours', kind: 'consult', start: block.startTime, end: block.endTime });
-    });
+  const slotKey = (sl: any) => `${sl.date}|${sl.start}`;
+  const slotLabel = (sl: any) => `${formatDatePreview(sl.date)} · ${formatTime(sl.start)} – ${formatTime(sl.end)}`;
+  const chosenSlot = slots.find(sl => slotKey(sl) === selectedSlot);
 
-    Object.values(byDay).forEach(entries => entries.sort((a, b) => (a.start > b.start ? 1 : -1)));
-    return byDay;
-  }, [facultySchedule, facultyConsultHours]);
+  // Professors the student has booked before, most recent first (shown by default and pinned to the top).
+  const recommendedIds: string[] = React.useMemo(() => {
+    const seen: string[] = [];
+    myRequests.forEach((r: any) => { const id = r.facultyId?._id; if (id && !seen.includes(id)) seen.push(id); });
+    return seen;
+  }, [myRequests]);
 
-  const filteredFaculty = faculty.filter(f =>
-    f.name.toLowerCase().includes(facultySearch.toLowerCase())
+  const positionOptions = Array.from(new Set(faculty.map(f => (f.programPosition || '').trim()).filter(Boolean))).sort();
+  const statusGroups: Record<string, string[]> = {
+    IN_CLASS: ['IN_CLASS'], IN_CONSULTATION: ['IN_CONSULTATION'], LEAVE_ABSENT: ['ON_LEAVE', 'ABSENT'],
+  };
+  const namedStatuses = Object.values(statusGroups).flat();
+  const matchesStatus = (st: string) => fStatus === 'OTHER' ? !namedStatuses.includes(st) : statusGroups[fStatus].includes(st);
+  const statusFiltered = faculty.filter(f =>
+    f.name.toLowerCase().includes(statusSearch.toLowerCase()) &&
+    (!fGender || f.gender === fGender) &&
+    (!fPosition || (f.programPosition || '').trim() === fPosition) &&
+    (!fStatus || matchesStatus(f.currentStatus))
   );
+
+  const matchingFaculty = faculty.filter(f => f.name.toLowerCase().includes(facultySearch.toLowerCase()));
+  const recommendedFaculty = recommendedIds.map(id => matchingFaculty.find(f => f._id === id)).filter(Boolean) as any[];
+  // With nothing typed only the recommendations show; once the student types, they stay pinned on top.
+  const filteredFaculty = [
+    ...recommendedFaculty,
+    ...(facultySearch.trim() ? matchingFaculty.filter(f => !recommendedIds.includes(f._id)) : []),
+  ];
 
   const selectedFacultyObj = faculty.find(f => f._id === selectedFaculty);
 
@@ -232,17 +275,8 @@ export default function StudentDashboard() {
       return;
     }
 
-    if (hoursUntil(aptDate, aptTime) < BOOKING_LEAD_HOURS) {
-      toast({
-        title: 'Too late to request this time',
-        description: `Appointments must be requested at least ${BOOKING_LEAD_HOURS} hours before the requested time.`,
-        status: 'warning',
-      });
-      return;
-    }
-
-    if (!(Number(aptDuration) >= 1 && Number(aptDuration) <= 60)) {
-      toast({ title: 'Choose a duration', description: 'Pick a duration of up to 1 hour.', status: 'warning' });
+    if (!chosenSlot) {
+      toast({ title: 'Choose a time', description: 'Select an available consultation slot.', status: 'warning', position: 'top' });
       return;
     }
 
@@ -262,7 +296,7 @@ export default function StudentDashboard() {
     try {
       const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/appointment`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: aptDate, time: aptTime, duration: Number(aptDuration), reason: aptReason })
+        body: JSON.stringify({ studentName: userName, studentSection, facultyId: selectedFaculty, date: chosenSlot.date, time: chosenSlot.start, reason: aptReason })
       });
 
       // 1. We must parse the JSON to read the custom error message from the backend
@@ -283,7 +317,7 @@ export default function StudentDashboard() {
         isClosable: true
       });
       
-      setSelectedFaculty(''); setAptDate(''); setAptTime(''); setAptDuration('30'); setAptReason(''); setAptPurpose('');
+      setSelectedFaculty(''); setSelectedSlot(''); setAptReason(''); setAptPurpose('');
       setActivePage('requests'); 
       fetchData(); 
       
@@ -339,6 +373,7 @@ export default function StudentDashboard() {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName} onClick={() => setActivePage('profile')} active={activePage === 'profile'} />
         <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -372,25 +407,47 @@ export default function StudentDashboard() {
 
       {/* ── Main Content ── */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <WelcomeHeader name={userName} />
         <BroadcastBanner userRole="STUDENT" />
         <div style={{ padding: "32px", overflowY: "auto", height: "100%" }}>
           <h1 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "20px", color: textColor }}>
             {activePage === 'home' && "Live Faculty Status"}
             {activePage === 'appointments' && "Schedule a Consultation"}
             {activePage === 'requests' && "My Appointment Requests"}
+            {activePage === 'profile' && "My Profile"}
           </h1>
+
+          {activePage === 'profile' && <ProfilePage />}
 
           {activePage === 'home' && (
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Flex gap={3} mb={4} wrap="wrap">
+                <Input placeholder="Search faculty by name..." value={statusSearch} onChange={(e) => setStatusSearch(e.target.value)} maxW="280px" color={textColor} borderColor={borderColor} />
+                <Select placeholder="Gender" value={fGender} onChange={(e) => setFGender(e.target.value)} maxW="150px" color={textColor} borderColor={borderColor}>
+                  <option value="Male">Male</option><option value="Female">Female</option>
+                </Select>
+                <Select placeholder="Position" value={fPosition} onChange={(e) => setFPosition(e.target.value)} maxW="220px" color={textColor} borderColor={borderColor}>
+                  {positionOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                </Select>
+                <Select placeholder="Status" value={fStatus} onChange={(e) => setFStatus(e.target.value)} maxW="200px" color={textColor} borderColor={borderColor}>
+                  <option value="IN_CLASS">In Class</option>
+                  <option value="IN_CONSULTATION">In Consultation</option>
+                  <option value="LEAVE_ABSENT">On Leave / Absent</option>
+                  <option value="OTHER">Other (Available, Meeting, Break, Out of Office...)</option>
+                </Select>
+              </Flex>
               <TableContainer>
                 <Table variant="simple" size="md">
                   <Thead><Tr><Th color={mutedText}>Faculty Name</Th><Th color={mutedText}>Live Status</Th><Th color={mutedText}>Announcements / Notices</Th></Tr></Thead>
                   <Tbody>
-                    {faculty.map((prof) => {
+                    {statusFiltered.length === 0 && (
+                      <Tr><Td colSpan={3}><Text color={mutedText} fontSize="sm">No faculty match your search or filters.</Text></Td></Tr>
+                    )}
+                    {statusFiltered.map((prof) => {
                       return (
                         <Tr key={prof._id}>
                           <Td fontWeight="bold" color={textColor}>
-                            <Text>{prof.name}</Text>
+                            <Text cursor="pointer" color="blue.500" _hover={{ textDecoration: 'underline' }} onClick={() => openMaster(prof)} title="View master schedule">{prof.name}</Text>
                             <Text fontSize="xs" color={mutedText} fontWeight="normal">{prof.programPosition}</Text>
                           </Td>
                           <Td>
@@ -441,8 +498,11 @@ export default function StudentDashboard() {
                         onChange={(e) => { setFacultySearch(e.target.value); setSelectedFaculty(''); }}
                         color={textColor} borderColor={borderColor} mb={2}
                       />
-                      {!selectedFaculty && facultySearch && (
+                      {!selectedFaculty && (facultySearch.trim() || filteredFaculty.length > 0) && (
                         <Box borderWidth="1px" borderColor={borderColor} borderRadius="md" maxH="180px" overflowY="auto">
+                          {!facultySearch.trim() && filteredFaculty.length > 0 && (
+                            <Text px={3} pt={2} fontSize="xs" color={mutedText}>Booked before. Type to search all professors.</Text>
+                          )}
                           {filteredFaculty.length === 0 && (
                             <Text p={3} fontSize="sm" color={mutedText}>No professors found.</Text>
                           )}
@@ -457,7 +517,7 @@ export default function StudentDashboard() {
                                 _hover={unavailable ? {} : { bg: facultyRowHoverBg }}
                                 onClick={() => { if (!unavailable) { setSelectedFaculty(f._id); setFacultySearch(''); } }}
                               >
-                                <Text fontWeight="600" color={textColor} fontSize="sm">{f.name} {unavailable ? '(Unavailable)' : ''}</Text>
+                                <Text fontWeight="600" color={textColor} fontSize="sm">{f.name} {unavailable ? '(Unavailable)' : ''} {recommendedIds.includes(f._id) && <Badge ml={1} colorScheme="blue" fontSize="9px">Booked before</Badge>}</Text>
                                 <Text fontSize="xs" color={mutedText}>{f.programPosition}</Text>
                               </Box>
                             );
@@ -468,27 +528,24 @@ export default function StudentDashboard() {
                         <ChakraButton size="xs" variant="link" colorScheme="blue" onClick={() => { setSelectedFaculty(''); setFacultySearch(''); }}>Change professor</ChakraButton>
                       )}
                     </FormControl>
-                    <HStack w="100%" alignItems="flex-start">
-                      <FormControl isRequired>
-                        <FormLabel color={textColor}>Date</FormLabel>
-                        <Input type="date" value={aptDate} onChange={(e) => setAptDate(e.target.value)} color={textColor} borderColor={borderColor}/>
-                        {aptDate && (
-                          <Text fontSize="xs" color={mutedText} mt={1}>{formatDatePreview(aptDate)}</Text>
-                        )}
-                      </FormControl>
-                      <FormControl isRequired>
-                        <FormLabel color={textColor}>Time</FormLabel>
-                        {/* Added min and max constraints directly to the HTML input */}
-                        <Input type="time" value={aptTime} onChange={(e) => setAptTime(e.target.value)} min="07:30" max="16:00" color={textColor} borderColor={borderColor}/>
-                        {/* Added helper text to guide the student */}
-                        <Text fontSize="xs" color={mutedText} mt={1}>7:30 AM - 4:00 PM</Text>
-                        <Text fontSize="xs" color={mutedText}>Request at least {BOOKING_LEAD_HOURS} hrs ahead.</Text>
-                      </FormControl>
-                    </HStack>
                     <FormControl isRequired>
-                      <FormLabel color={textColor}>Duration</FormLabel>
-                      <DurationPicker value={aptDuration} onChange={setAptDuration} />
-                      <Text fontSize="xs" color={mutedText} mt={1}>Maximum of 1 hour per consultation.</Text>
+                      <FormLabel color={textColor}>Time</FormLabel>
+                      <Select
+                        placeholder={!selectedFaculty ? 'Choose a professor first' : slots.length ? 'Select an available slot' : 'No open slots'}
+                        value={selectedSlot}
+                        onChange={(e) => setSelectedSlot(e.target.value)}
+                        isDisabled={!selectedFaculty || slots.length === 0}
+                        color={textColor} borderColor={borderColor}
+                      >
+                        {slots.map(sl => (
+                          <option key={slotKey(sl)} value={slotKey(sl)} disabled={sl.full}>
+                            {slotLabel(sl)}{sl.kind === 'ADDED' ? ' (added hours)' : ''}{sl.full ? ' (full)' : ''}
+                          </option>
+                        ))}
+                      </Select>
+                      <Text fontSize="xs" color={mutedText} mt={1}>
+                        Pick from the list or click a slot on the right. Requests need at least {BOOKING_LEAD_HOURS} hrs notice. Default length is {chosenSlot ? `${chosenSlot.duration} minutes` : '1 hour'}; your professor can shorten it when accepting.
+                      </Text>
                     </FormControl>
                     <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
                       <Select
@@ -525,33 +582,50 @@ export default function StudentDashboard() {
                   {selectedFacultyObj ? `${selectedFacultyObj.name}'s Weekly Hours` : 'Select a professor to view their hours'}
                 </Heading>
                 {!selectedFaculty && (
-                  <Text fontSize="sm" color={mutedText}>Search and choose a professor on the left to see when they're in class versus available for consultation.</Text>
+                  <Text fontSize="sm" color={mutedText}>Search and choose a professor on the left to see their open consultation slots.</Text>
                 )}
                 {selectedFaculty && scheduleLoading && (
                   <Text fontSize="sm" color={mutedText}>Loading schedule...</Text>
                 )}
-                {selectedFaculty && !scheduleLoading && (
-                  <VStack align="stretch" spacing={3}>
-                    {DAY_LABELS.map((day, i) => (
-                      <Box key={day}>
-                        <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>{day}</Text>
-                        {weeklyHoursByDay[i].length === 0 ? (
-                          <Text fontSize="xs" color={mutedText} pl={2}>No scheduled hours</Text>
-                        ) : (
-                          <VStack align="stretch" spacing={1} pl={2}>
-                            {weeklyHoursByDay[i].map((entry, idx) => (
-                              <HStack key={idx} spacing={2} align="center">
-                                <Badge colorScheme={entry.kind === 'class' ? 'gray' : 'green'} textTransform="none" px={2} py={0.5} borderRadius="md" flexShrink={0} maxW="60%" whiteSpace="normal">
-                                  {entry.label}
-                                </Badge>
-                                <Box flex="1" borderBottom="2px dotted" borderColor={mutedText} opacity={0.6} minW="12px" alignSelf="flex-end" mb="3px" />
-                                <Text fontSize="xs" color={mutedText} flexShrink={0} whiteSpace="nowrap">{formatTime(entry.start)} – {formatTime(entry.end)}</Text>
-                              </HStack>
-                            ))}
+                {selectedFaculty && !scheduleLoading && slotsByDate.length === 0 && (
+                  <Text fontSize="sm" color={mutedText}>No open consultation slots in the next 4 weeks.</Text>
+                )}
+                {selectedFaculty && !scheduleLoading && slotsByDate.length > 0 && (
+                  <VStack align="stretch" spacing={4}>
+                    <Flex align="center" justify="space-between" gap={2}>
+                      <ChakraButton size="sm" variant="outline" isDisabled={weekOffset === 0} visibility={weekOffset === 0 ? 'hidden' : 'visible'} onClick={() => setWeekOffset(w => Math.max(0, w - 1))}>‹ Previous Week</ChakraButton>
+                      <Text fontWeight="700" fontSize="sm" color={textColor} textAlign="center">{weekLabel(weekStart)}</Text>
+                      <ChakraButton size="sm" variant="outline" isDisabled={weekOffset >= maxWeekOffset} onClick={() => setWeekOffset(w => Math.min(maxWeekOffset, w + 1))}>Next Week ›</ChakraButton>
+                    </Flex>
+                    <Text fontSize="xs" color={mutedText} textAlign="center">Official and added consultation hours, in 1-hour slots. Up to {maxPending} students can request the same slot; the professor accepts one.</Text>
+                    {weekSlotsByDate.length === 0 ? (
+                      <Text fontSize="sm" color={mutedText} textAlign="center" py={6}>No open consultation slots this week.</Text>
+                    ) : (
+                      <VStack spacing={5} align="center">
+                        {weekSlotsByDate.map(([date, list]) => (
+                          <VStack key={date} spacing={2} align="center" w="100%">
+                            <Text fontWeight="700" fontSize="sm" color={textColor}>{dayHeading(date)}</Text>
+                            {list.map((sl: any) => {
+                              const active = slotKey(sl) === selectedSlot;
+                              return (
+                                <ChakraButton
+                                  key={slotKey(sl)}
+                                  size="sm"
+                                  w="100%" maxW="260px"
+                                  variant={active ? 'solid' : 'outline'}
+                                  colorScheme={sl.kind === 'ADDED' ? 'purple' : 'green'}
+                                  isDisabled={sl.full}
+                                  onClick={() => setSelectedSlot(slotKey(sl))}
+                                  title={sl.full ? 'Full: 3 pending requests' : `${sl.pending} of ${maxPending} request spots taken`}
+                                >
+                                  {formatTime(sl.start)} – {formatTime(sl.end)}{sl.pending > 0 && !sl.full ? ` (${sl.pending}/${maxPending})` : ''}{sl.full ? ' (full)' : ''}
+                                </ChakraButton>
+                              );
+                            })}
                           </VStack>
-                        )}
-                      </Box>
-                    ))}
+                        ))}
+                      </VStack>
+                    )}
                   </VStack>
                 )}
               </Box>
@@ -574,6 +648,7 @@ export default function StudentDashboard() {
                           {['CANCELLED BY FACULTY', 'CANCELLED BY STUDENT', 'REJECTED'].includes(apt.status) && apt.cancelReason && (
                             <Text fontSize="xs" color={mutedText} mt={1}>Reason: {apt.cancelReason}</Text>
                           )}
+                          <AppealControls apt={apt} role="STUDENT" onChanged={fetchData} />
                         </Td>
                         <Td>
                           {apt.status === 'PENDING' && (
@@ -637,6 +712,7 @@ export default function StudentDashboard() {
         isOpen={isProfileOpen}
         role="STUDENT"
         email={localStorage.getItem('userEmail') || ''}
+        name={localStorage.getItem('userName') || ''}
         token={localStorage.getItem('token') || ''}
         onOpenPrivacy={onPrivacyOpen}
         onSkip={onProfileClose}
@@ -649,6 +725,18 @@ export default function StudentDashboard() {
         }}
       />
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
+      <Modal isOpen={isMasterOpen} onClose={onMasterClose} size="4xl" isCentered scrollBehavior="inside">
+        <ModalOverlay />
+        <ModalContent bg={cardBg}>
+          <ModalHeader color={textColor}>{masterFaculty?.name}: Master Schedule</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody pb={6}>
+            {masterLoading ? <Text color={mutedText}>Loading schedule...</Text> : (
+              <WeeklyCalendar classes={masterData.classes} official={masterData.official} added={masterData.added} />
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
       <Modal isOpen={isSummaryOpen} onClose={onSummaryClose} isCentered>
         <ModalOverlay />
         <ModalContent>

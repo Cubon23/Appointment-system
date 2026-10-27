@@ -69,18 +69,36 @@ router.post('/google', googleLimiter, async (req, res) => {
         accountStatus: 'ACTIVE',
         onboardingComplete: false
       });
-    } else if (!user.googleSub) {
-      user.googleSub = payload.sub; // link an older account to its Google identity
-      user.isVerified = true;
-      await user.save();
-    } else if (user.googleSub !== payload.sub) {
-      return res.status(403).json({ error: 'This account is linked to a different Google account.' });
+    } else {
+      if (user.googleSub && user.googleSub !== payload.sub) {
+        return res.status(403).json({ error: 'This account is linked to a different Google account.' });
+      }
+      let changed = false;
+      if (!user.googleSub) { user.googleSub = payload.sub; user.isVerified = true; changed = true; } // link an older account to its Google identity
+      if (decision.promoteTo && user.role !== decision.promoteTo) { user.role = decision.promoteTo; changed = true; } // listed in ADMIN_EMAILS
+      if (changed) await user.save();
     }
 
     res.json(sessionPayload(user));
   } catch (error) {
     console.error('Google sign-in error:', error.message);
     res.status(500).json({ error: 'Sign-in failed. Please try again.' });
+  }
+});
+
+// GET /api/auth/me — the logged-in person's own profile (never includes the password or tokens).
+router.get('/me', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']), async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId)
+      .select('name email role gender programPosition schoolId facultyId onboardingComplete privacyAcceptedAt');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      name: user.name, email: user.email, role: user.role, gender: user.gender || '',
+      programPosition: user.programPosition || '', schoolId: user.schoolId || '', facultyId: user.facultyId || '',
+      privacyAcceptedAt: user.privacyAcceptedAt, profileComplete: isProfileComplete(user),
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not load your profile.' });
   }
 });
 
@@ -92,9 +110,8 @@ router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']),
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (isProfileComplete(user)) return res.status(400).json({ error: 'Profile is already complete.' });
 
-    const { name, gender, programPosition, idValue, privacyAccepted } = req.body || {};
+    const { gender, programPosition, idValue, privacyAccepted } = req.body || {};
     if (privacyAccepted !== true) return res.status(400).json({ error: 'Please accept the Privacy Policy.' });
-    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required.' });
     if (!['Male', 'Female', 'Prefer not to say'].includes(gender)) return res.status(400).json({ error: 'Gender is required.' });
     if (!programPosition || !String(programPosition).trim()) {
       return res.status(400).json({ error: user.role === 'STUDENT' ? 'Program, year and section are required.' : 'Position is required.' });
@@ -110,7 +127,7 @@ router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']),
       user[field] = check.id;
     }
 
-    user.name = String(name).trim();
+    // The name stays as it came from the school Google account.
     user.gender = gender;
     user.programPosition = String(programPosition).trim();
     user.privacyAcceptedAt = new Date();
