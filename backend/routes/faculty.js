@@ -38,16 +38,12 @@ const ConsultationHours = require('../models/ConsultationHours');
 const { isOverlapping } = require('../utils/timeMath');
 const { requireAuth } = require('../middleware/auth');
 
-// Exactly one "@", a plain local part, and the gmail.com domain.
-// (Rejects "name@gmail.com@gmail.com", which happens when someone types the full
-// address into a field that already appends "@gmail.com".)
-const GMAIL_REGEX = /^[a-z0-9._+-]+@gmail\.com$/;
 // Generic shape check for admin-provisioned accounts (any domain, but still a single "@").
 const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 // Official ID formats (same rules as the User model).
-const SCHOOL_ID_REGEX = /^(\d{4}-\d{4}-[A-Z]|\d{4}-S0\d{4})$/;
-const FACULTY_ID_REGEX = /^UA-[A-Z]{5}-\d{4}-\d{4}$/;
+const { STUDENT_ID_REGEX: SCHOOL_ID_REGEX, EMPLOYEE_ID_REGEX: FACULTY_ID_REGEX } = require('../utils/idValidator');
 const Broadcast = require('../models/Broadcast');
+const { isProfileComplete, parseList } = require('../utils/signInPolicy');
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
@@ -85,127 +81,7 @@ async function issueVerificationLink(user) {
   return `${frontendUrl}/verify-email/${raw}`;
 }
 
-router.post('/register', async (req, res) => {
-  try {
-    const { name, email, password, role, programPosition, schoolId, facultyId, privacyAccepted, gender, noIdYet } = req.body;
-
-    // Consent must be explicit, and is enforced here too — not just by the checkbox in the browser.
-    if (privacyAccepted !== true) {
-      return res.status(400).json({ error: 'You must accept the Privacy Policy to register.' });
-    }
-
-    // Gender is collected once, here (students and faculty), instead of on every appointment.
-    if (!['Male', 'Female'].includes(gender)) {
-      return res.status(400).json({ error: 'Please select your gender.' });
-    }
-
-    // Registered names read "Last name, First name, Middle initial" so records stay consistent.
-    // (A title such as "Prof." may come first, so only the comma between last and first is checked.)
-    if (typeof name !== 'string' || !/^[^,]+,[^,]+/.test(name.trim())) {
-      return res.status(400).json({ error: 'Please enter your name as: Last name, First name, Middle initial.' });
-    }
-
-    // Originally this required @ua.edu.ph specifically. The school never actually
-    // provisioned working mailboxes on that domain, so verification emails sent to
-    // it silently went nowhere and nobody could complete registration. Per guidance
-    // from the school's own network administrator, this now requires @gmail.com
-    // specifically — not just any email — because mailer.js sends through Gmail SMTP,
-    // and a Gmail recipient is the one case we can be confident is actually
-    // deliverable (so the verify-email and forgot-password links reliably arrive).
-    // Identity itself is still established by Admin's manual ID verification
-    // (PENDING_APPROVAL -> Verification Queue), not by the email domain.
-    if (typeof email !== 'string' || !GMAIL_REGEX.test(email.trim().toLowerCase())) {
-      return res.status(400).json({ error: 'Please register with a Gmail address (e.g. yourname@gmail.com).' });
-    }
-
-    const existingUser = await User.findOne({ email: email.trim().toLowerCase() });
-    if (existingUser) {
-      return res.status(400).json({ error: 'An account with this email already exists.' });
-    }
-
-    if (role === 'ADMIN' || role === 'DEAN') {
-      return res.status(403).json({ error: 'Restricted role. Contact IT department.' });
-    }
-
-    // School ID (students) / Faculty ID (faculty) is required and format-checked, unless the person
-    // ticked "I don't have my ID yet". Those accounts are flagged (noIdYet) and an Admin adds the
-    // ID later in User Management.
-    const hasNoId = noIdYet === true;
-    const rawId = String((role === 'STUDENT' ? schoolId : facultyId) || '').trim().toUpperCase();
-    if (!hasNoId) {
-      const label = role === 'STUDENT' ? 'School ID' : 'Faculty ID';
-      if (!rawId) {
-        return res.status(400).json({ error: `Please enter your ${label}, or tick "I don't have my ID yet".` });
-      }
-      if (!(role === 'STUDENT' ? SCHOOL_ID_REGEX : FACULTY_ID_REGEX).test(rawId)) {
-        return res.status(400).json({ error: `That ${label} is not in a valid format.` });
-      }
-      const idTaken = await User.findOne(role === 'STUDENT' ? { schoolId: rawId } : { facultyId: rawId });
-      if (idTaken) {
-        return res.status(400).json({ error: `An account with this ${label} already exists.` });
-      }
-    }
-    
-    // Password Strength Validation
-    const passwordPattern = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
-    if (!passwordPattern.test(password)) {
-      return res.status(400).json({ error: 'Password must be at least 12 characters, with 1 uppercase letter, 1 number, and 1 symbol.' });
-    }
-
-    // Hash the password before saving/bcrypting it to the database
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // The schoolId/facultyId typed at registration is kept on the account as-is. Students and
-    // faculty still wait for an Admin to approve them in the Verification Queue
-    // (PATCH /users/:id/verify) — the Admin approves; they do not assign an ID.
-    const accountStatus = (role === 'STUDENT' || role === 'FACULTY') ? 'PENDING_APPROVAL' : 'ACTIVE';
-
-    // Accounts waiting for Admin approval get NO verification email yet. It used to be sent here,
-    // but approval can take days: the 24-hour link had expired (or been forgotten) by then, so the
-    // email "went nowhere". The email is now sent at the moment the Admin approves the account.
-    const needsApproval = accountStatus === 'PENDING_APPROVAL';
-
-    const newUser = await User.create({
-      name,
-      gender,
-      email: email.trim().toLowerCase(),
-      password: hashedPassword, // Secured.
-      role,
-      programPosition,
-      schoolId: role === 'STUDENT' && !hasNoId ? rawId : undefined,
-      facultyId: role === 'FACULTY' && !hasNoId ? rawId : undefined,
-      noIdYet: hasNoId,
-      accountStatus,
-      currentStatus: 'OUT_OF_OFFICE',
-      isVerified: false,
-      privacyAcceptedAt: new Date()
-    });
-
-    if (needsApproval) {
-      await notifyRole('ADMIN', {
-        type: 'REGISTRATION',
-        title: 'New registration awaiting approval',
-        message: `${name} (${role}) registered${hasNoId ? ' without an ID' : ''} and is awaiting approval in the Verification Queue.`,
-      });
-    } else {
-      // Accounts that need no approval verify their email right away.
-      const verificationLink = await issueVerificationLink(newUser);
-      await sendVerificationEmail(newUser.email, verificationLink);
-    }
-
-    res.json({
-      message: needsApproval
-        ? 'Registration received! An administrator will review your account. We will email you once it is approved, then you can verify your email and log in.'
-        : 'Registration received! Please check your email to verify your account before logging in.',
-      accountStatus
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error during registration.' });
-  }
-});
+// (Self-registration was removed: accounts are created by Google sign-in in routes/auth.js.)
 
 // === 2. SECURE LOGIN ROUTE ===
 router.post('/login', loginLimiter, async (req, res) => {
@@ -473,6 +349,12 @@ router.get('/announcements/:section', requireAuth(ALL_ROLES), async (req, res) =
 // 8. POST ROUTE: Student requests an appointment
 router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
   try {
+    // Read-only mode: students who haven't completed their profile (incl. a valid ID) can browse but not book.
+    const booker = await User.findById(req.user.userId).select('role onboardingComplete schoolId');
+    if (!booker || !isProfileComplete(booker)) {
+      return res.status(403).json({ error: 'Complete your profile details and ID to unlock consultation requests.' });
+    }
+
     const { facultyId, date, time, studentName, studentSection, reason } = req.body;
 
     // Duration in minutes: a whole number from 1 to 60 (max 1 hour). Defaults to 60 for older clients.
@@ -664,8 +546,8 @@ router.patch('/users/:id/id', requireAuth(['ADMIN']), async (req, res) => {
     if (!(isStudent ? SCHOOL_ID_REGEX : FACULTY_ID_REGEX).test(idValue)) {
       return res.status(400).json({
         error: isStudent
-          ? 'Invalid School ID format. Use 2024-1234-A or 2025-S04321.'
-          : 'Invalid Faculty ID format. Use UA-COSFM-2025-1234.'
+          ? 'Invalid School ID format. Use 2025-S00001 or 2025-1234-A.'
+          : 'Invalid Faculty ID format. Use 2025S-00001.'
       });
     }
     const taken = await User.findOne({ [isStudent ? 'schoolId' : 'facultyId']: idValue, _id: { $ne: user._id } });
@@ -681,6 +563,33 @@ router.patch('/users/:id/id', requireAuth(['ADMIN']), async (req, res) => {
     });
   } catch (error) {
     res.status(400).json({ error: error.message || 'Could not save the ID.' });
+  }
+});
+
+// Admin moves an older account (e.g. registered with a personal Gmail) to the person's school email,
+// so their next Google sign-in finds the account with its appointments and ID intact.
+router.patch('/users/:id/email', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const newEmail = String(req.body.email || '').trim().toLowerCase();
+    const domains = parseList(process.env.ALLOWED_EMAIL_DOMAIN);
+    if (!EMAIL_REGEX.test(newEmail) || !domains.includes(newEmail.split('@')[1])) {
+      return res.status(400).json({ error: `Use a school email address (${domains.map(d => '@' + d).join(', ') || 'domain not configured'}).` });
+    }
+    if (req.params.id === req.user.userId) {
+      return res.status(400).json({ error: 'You cannot change your own email here.' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const taken = await User.findOne({ email: newEmail, _id: { $ne: user._id } }).select('name role');
+    if (taken) {
+      return res.status(409).json({ error: `That email already belongs to another account (${taken.name}). If it is an empty duplicate created by signing in, remove it first.` });
+    }
+    user.email = newEmail;
+    user.googleSub = undefined; // the Google identity is re-linked on their next sign-in
+    await user.save();
+    res.json({ message: `${user.name} can now sign in with ${newEmail}.`, user: { _id: user._id, email: user.email } });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not change the email.' });
   }
 });
 

@@ -52,6 +52,9 @@ export default function AdminDashboard() {
   const [newFacultyName, setNewFacultyName] = useState('');
 
   const [usersMenuOpen, setUsersMenuOpen] = useState(false); // User Management dropdown
+  const [emailEdit, setEmailEdit] = useState<any | null>(null); // account being moved to a school email
+  const [emailEditValue, setEmailEditValue] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
   const [idEdit, setIdEdit] = useState<any | null>(null);    // account whose School/Faculty ID is being added or edited
   const [idEditValue, setIdEditValue] = useState('');
   const [idSaving, setIdSaving] = useState(false);
@@ -140,6 +143,27 @@ export default function AdminDashboard() {
   // Quick lookup so the faculty table (which comes from the live-status list) can show IDs.
   const userById: Record<string, any> = {};
   allUsers.forEach(u => { userById[u._id] = u; });
+
+  const openEmailEdit = (u: any) => { setEmailEdit(u); setEmailEditValue(''); };
+  const saveEmail = async () => {
+    if (!emailEdit) return;
+    setEmailSaving(true);
+    try {
+      const response = await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/users/${emailEdit._id}/email`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailEditValue })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast({ title: 'Email changed', description: data.message, status: 'success' });
+      setEmailEdit(null);
+      fetchAllData();
+    } catch (error: any) {
+      toast({ title: 'Could not change email', description: error.message, status: 'error' });
+    }
+    setEmailSaving(false);
+  };
 
   const openIdEdit = (u: any) => { setIdEdit(u); setIdEditValue((u.role === 'STUDENT' ? u.schoolId : u.facultyId) || ''); };
 
@@ -402,7 +426,7 @@ export default function AdminDashboard() {
         {activePage === 'users' && userTab === 'faculty' && (
           <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
             <Input
-              placeholder="Search by name or position..."
+              placeholder="Search by name, position or email..."
               value={facultySearch}
               onChange={(e) => setFacultySearch(e.target.value)}
               mb={4}
@@ -416,7 +440,8 @@ export default function AdminDashboard() {
                 {facultyList
                   .filter(prof =>
                     prof.name.toLowerCase().includes(facultySearch.toLowerCase()) ||
-                    prof.programPosition.toLowerCase().includes(facultySearch.toLowerCase())
+                    prof.programPosition.toLowerCase().includes(facultySearch.toLowerCase()) ||
+                    (userById[prof._id]?.email || '').toLowerCase().includes(facultySearch.toLowerCase())
                   )
                   .map(prof => (
                     <Tr key={prof._id}>
@@ -443,9 +468,12 @@ export default function AdminDashboard() {
                       </Td>
                       <Td>
                         {userById[prof._id]?.role === 'FACULTY' && (
-                          <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(userById[prof._id])}>
-                            {userById[prof._id]?.facultyId ? 'Edit ID' : 'Add ID'}
-                          </ChakraButton>
+                          <HStack spacing={2}>
+                            <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(userById[prof._id])}>
+                              {userById[prof._id]?.facultyId ? 'Edit ID' : 'Add ID'}
+                            </ChakraButton>
+                            <ChakraButton size="xs" variant="outline" onClick={() => openEmailEdit(userById[prof._id])}>Change email</ChakraButton>
+                          </HStack>
                         )}
                       </Td>
                     </Tr>
@@ -489,7 +517,7 @@ export default function AdminDashboard() {
               </Select>
 
               <Input
-                placeholder="Search by name..."
+                placeholder="Search by name or email..."
                 value={studentSearch}
                 onChange={(e) => setStudentSearch(e.target.value)}
                 color={textColor} borderColor={borderColor}
@@ -504,7 +532,7 @@ export default function AdminDashboard() {
                   .filter(u => !filterProgram || u.programPosition?.startsWith(filterProgram))
                   .filter(u => !filterYear || u.programPosition?.includes(` ${filterYear}`))
                   .filter(u => !filterSection || u.programPosition?.endsWith(filterSection))
-                  .filter(u => u.name.toLowerCase().includes(studentSearch.toLowerCase()))
+                  .filter(u => u.name.toLowerCase().includes(studentSearch.toLowerCase()) || (u.email || '').toLowerCase().includes(studentSearch.toLowerCase()))
                   .map(student => (
                     <Tr key={student._id}>
                       <Td fontWeight="bold" color={textColor}>{student.name}</Td>
@@ -512,9 +540,12 @@ export default function AdminDashboard() {
                       <Td color={textColor}>{student.programPosition}</Td>
                       <Td color={textColor}>{student.email}</Td>
                       <Td>
-                        <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(student)}>
-                          {student.schoolId ? 'Edit ID' : 'Add ID'}
-                        </ChakraButton>
+                        <HStack spacing={2}>
+                          <ChakraButton size="xs" variant="outline" onClick={() => openIdEdit(student)}>
+                            {student.schoolId ? 'Edit ID' : 'Add ID'}
+                          </ChakraButton>
+                          <ChakraButton size="xs" variant="outline" onClick={() => openEmailEdit(student)}>Change email</ChakraButton>
+                        </HStack>
                       </Td>
                     </Tr>
                   ))}
@@ -665,6 +696,24 @@ export default function AdminDashboard() {
         </Box>
       )}
 
+        <Modal isOpen={!!emailEdit} onClose={() => setEmailEdit(null)} isCentered>
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>Change email — {emailEdit?.name}</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody pb={6}>
+              <Text fontSize="sm" mb={3} color={mutedText}>
+                Current: {emailEdit?.email}. Enter their school email so they can sign in with Google. Their appointments and ID stay with the account.
+              </Text>
+              <FormControl isRequired mb={4}>
+                <FormLabel>School email</FormLabel>
+                <Input placeholder="name@antiquespride.edu.ph" value={emailEditValue} onChange={(e) => setEmailEditValue(e.target.value.trim().toLowerCase())} />
+              </FormControl>
+              <ChakraButton colorScheme="blue" w="100%" onClick={saveEmail} isLoading={emailSaving}>Save email</ChakraButton>
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+
         <Modal isOpen={!!idEdit} onClose={() => setIdEdit(null)} isCentered>
           <ModalOverlay />
           <ModalContent>
@@ -674,7 +723,7 @@ export default function AdminDashboard() {
               <FormControl isRequired mb={4}>
                 <FormLabel>{idEdit?.role === 'STUDENT' ? 'School ID' : 'Faculty ID'}</FormLabel>
                 <Input
-                  placeholder={idEdit?.role === 'STUDENT' ? '2024-1234-A or 2025-S04321' : 'UA-COSFM-2025-1234'}
+                  placeholder={idEdit?.role === 'STUDENT' ? '2025-S00001 or 2025-1234-A' : '2025S-00001'}
                   value={idEditValue}
                   onChange={(e) => setIdEditValue(e.target.value.toUpperCase())}
                 />
@@ -686,4 +735,4 @@ export default function AdminDashboard() {
       </Box>
     </Flex>
   );
-}
+}
