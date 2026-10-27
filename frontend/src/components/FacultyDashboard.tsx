@@ -17,12 +17,15 @@ import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
 import FacultyAnalytics from './FacultyAnalytics';
+import SidebarIdentity from './SidebarIdentity';
+import WelcomeHeader from './WelcomeHeader';
+import ProfilePage from './ProfilePage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Page      = "status" | "schedule" | "requests" | "log" | "analytics";
+type Page      = "status" | "schedule" | "requests" | "log" | "analytics" | "profile";
 type ViewMode  = "week" | "day";
 type EventType = "teaching" | "appointment" | "consultation" | "note";
 
@@ -737,6 +740,7 @@ const saveConsultationHours = async () => {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName || ''} onClick={() => setActivePage("profile")} active={activePage === "profile"} />
         <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -802,6 +806,7 @@ const saveConsultationHours = async () => {
           MAIN CONTENT
       ═══════════════════════════════════════════════════════════════════ */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <WelcomeHeader name={userName || ''} />
         <BroadcastBanner userRole="FACULTY" />
 
         {/* ───────────────────────────────────────────────────────────────
@@ -1228,6 +1233,13 @@ const saveConsultationHours = async () => {
         {/* ───────────────────────────────────────────────────────────────
             PAGE: CONSULTATION LOG (Chakra UI Form)
         ─────────────────────────────────────────────────────────────── */}
+
+        {activePage === "profile" && (
+          <Box h="100%" overflowY="auto" p={6}>
+            <Heading size="md" color={textColor} mb={4}>My Profile</Heading>
+            <ProfilePage />
+          </Box>
+        )}
 
         {activePage === "analytics" && (
           <Box h="100%" overflowY="auto" p={6}>

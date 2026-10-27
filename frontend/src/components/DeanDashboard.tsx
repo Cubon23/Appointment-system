@@ -13,6 +13,7 @@ import NotificationBell from './NotificationBell';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
 import DeanAppeals from './DeanAppeals';
+import SidebarIdentity from './SidebarIdentity';
 
 // === Helper function for time formatting ===
 export const formatTime = (timeStr: string) => {
@@ -90,7 +91,8 @@ export default function DeanDashboard() {
 
   const renderSidebar = () => (
     <Box w="196px" bg={C.sidebar} p={6} h="100vh" position="sticky" top="0" display="flex" flexDir="column">
-      <Heading size="sm" mb={6} color="#fff" letterSpacing="tight">Dean's Office</Heading>
+      <Heading size="sm" mb={4} color="#fff" letterSpacing="tight">Dean's Office</Heading>
+      <SidebarIdentity name={userName || ''} />
       <NotificationBell navText={C.navText} navBg={C.navBg} />
       <VStack align="stretch" spacing={1} flex="1">
         <button

@@ -86,6 +86,22 @@ router.post('/google', googleLimiter, async (req, res) => {
   }
 });
 
+// GET /api/auth/me — the logged-in person's own profile (never includes the password or tokens).
+router.get('/me', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']), async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId)
+      .select('name email role gender programPosition schoolId facultyId onboardingComplete privacyAcceptedAt');
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      name: user.name, email: user.email, role: user.role, gender: user.gender || '',
+      programPosition: user.programPosition || '', schoolId: user.schoolId || '', facultyId: user.facultyId || '',
+      privacyAcceptedAt: user.privacyAcceptedAt, profileComplete: isProfileComplete(user),
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not load your profile.' });
+  }
+});
+
 // POST /api/auth/onboarding  — first-login details Google can't supply. The ID is mandatory.
 // The role comes from the server (roster / ADMIN_EMAILS), never from the request.
 router.post('/onboarding', requireAuth(['STUDENT', 'FACULTY', 'DEAN', 'ADMIN']), async (req, res) => {

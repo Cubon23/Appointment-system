@@ -18,6 +18,10 @@ import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
 import WeeklyCalendar from './WeeklyCalendar';
+import SidebarIdentity from './SidebarIdentity';
+import WelcomeHeader from './WelcomeHeader';
+import ProfilePage from './ProfilePage';
+import { manilaToday, addDaysIso, mondayOf, weeksBetween, weekLabel, dayHeading } from '../utils/weekUtils';
 
 const PURPOSE_OPTIONS = [
   'Capstone / Thesis Consultation',
@@ -117,6 +121,7 @@ export default function StudentDashboard() {
   const [maxPending, setMaxPending] = useState(3);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(''); // "YYYY-MM-DD|HH:MM"
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = the current week; the booking window is 4 weeks ahead
   const [aptReason, setAptReason] = useState('');
   const [aptPurpose, setAptPurpose] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -178,6 +183,7 @@ export default function StudentDashboard() {
   // pending counts and taken slots stay current while the student is choosing.
   useEffect(() => {
     setSelectedSlot('');
+    setWeekOffset(0);
     if (!selectedFaculty) { setSlots([]); return; }
     let alive = true;
     const load = (first: boolean) => {
@@ -199,6 +205,14 @@ export default function StudentDashboard() {
     slots.forEach(sl => { (m[sl.date] = m[sl.date] || []).push(sl); });
     return Object.entries(m);
   }, [slots]);
+
+  // Week-by-week view: Monday to Sunday, never earlier than the current week, never past the booking window.
+  const todayIso = manilaToday();
+  const thisMonday = mondayOf(todayIso);
+  const maxWeekOffset = weeksBetween(thisMonday, mondayOf(addDaysIso(todayIso, 27)));
+  const weekStart = addDaysIso(thisMonday, weekOffset * 7);
+  const weekEnd = addDaysIso(weekStart, 6);
+  const weekSlotsByDate = slotsByDate.filter(([date]) => date >= weekStart && date <= weekEnd);
 
   const slotKey = (sl: any) => `${sl.date}|${sl.start}`;
   const slotLabel = (sl: any) => `${formatDatePreview(sl.date)} · ${formatTime(sl.start)} – ${formatTime(sl.end)}`;
@@ -359,6 +373,7 @@ export default function StudentDashboard() {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName} onClick={() => setActivePage('profile')} active={activePage === 'profile'} />
         <NotificationBell navText={C.navText} navBg={C.navBg} />
 
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
@@ -392,13 +407,17 @@ export default function StudentDashboard() {
 
       {/* ── Main Content ── */}
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <WelcomeHeader name={userName} />
         <BroadcastBanner userRole="STUDENT" />
         <div style={{ padding: "32px", overflowY: "auto", height: "100%" }}>
           <h1 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "20px", color: textColor }}>
             {activePage === 'home' && "Live Faculty Status"}
             {activePage === 'appointments' && "Schedule a Consultation"}
             {activePage === 'requests' && "My Appointment Requests"}
+            {activePage === 'profile' && "My Profile"}
           </h1>
+
+          {activePage === 'profile' && <ProfilePage />}
 
           {activePage === 'home' && (
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
@@ -572,31 +591,41 @@ export default function StudentDashboard() {
                   <Text fontSize="sm" color={mutedText}>No open consultation slots in the next 4 weeks.</Text>
                 )}
                 {selectedFaculty && !scheduleLoading && slotsByDate.length > 0 && (
-                  <VStack align="stretch" spacing={3} maxH="520px" overflowY="auto" pr={1}>
-                    <Text fontSize="xs" color={mutedText}>Official and added consultation hours, in 1-hour slots. Up to {maxPending} students can request the same slot; the professor accepts one.</Text>
-                    {slotsByDate.map(([date, list]) => (
-                      <Box key={date}>
-                        <Text fontWeight="600" fontSize="sm" color={textColor} mb={1}>{formatDatePreview(date)}</Text>
-                        <Flex wrap="wrap" gap={2}>
-                          {list.map((sl: any) => {
-                            const active = slotKey(sl) === selectedSlot;
-                            return (
-                              <ChakraButton
-                                key={slotKey(sl)}
-                                size="xs"
-                                variant={active ? 'solid' : 'outline'}
-                                colorScheme={sl.kind === 'ADDED' ? 'purple' : 'green'}
-                                isDisabled={sl.full}
-                                onClick={() => setSelectedSlot(slotKey(sl))}
-                                title={sl.full ? 'Full: 3 pending requests' : `${sl.pending} of ${maxPending} request spots taken`}
-                              >
-                                {formatTime(sl.start)} – {formatTime(sl.end)}{sl.pending > 0 && !sl.full ? ` (${sl.pending}/${maxPending})` : ''}{sl.full ? ' (full)' : ''}
-                              </ChakraButton>
-                            );
-                          })}
-                        </Flex>
-                      </Box>
-                    ))}
+                  <VStack align="stretch" spacing={4}>
+                    <Flex align="center" justify="space-between" gap={2}>
+                      <ChakraButton size="sm" variant="outline" isDisabled={weekOffset === 0} visibility={weekOffset === 0 ? 'hidden' : 'visible'} onClick={() => setWeekOffset(w => Math.max(0, w - 1))}>‹ Previous Week</ChakraButton>
+                      <Text fontWeight="700" fontSize="sm" color={textColor} textAlign="center">{weekLabel(weekStart)}</Text>
+                      <ChakraButton size="sm" variant="outline" isDisabled={weekOffset >= maxWeekOffset} onClick={() => setWeekOffset(w => Math.min(maxWeekOffset, w + 1))}>Next Week ›</ChakraButton>
+                    </Flex>
+                    <Text fontSize="xs" color={mutedText} textAlign="center">Official and added consultation hours, in 1-hour slots. Up to {maxPending} students can request the same slot; the professor accepts one.</Text>
+                    {weekSlotsByDate.length === 0 ? (
+                      <Text fontSize="sm" color={mutedText} textAlign="center" py={6}>No open consultation slots this week.</Text>
+                    ) : (
+                      <VStack spacing={5} align="center">
+                        {weekSlotsByDate.map(([date, list]) => (
+                          <VStack key={date} spacing={2} align="center" w="100%">
+                            <Text fontWeight="700" fontSize="sm" color={textColor}>{dayHeading(date)}</Text>
+                            {list.map((sl: any) => {
+                              const active = slotKey(sl) === selectedSlot;
+                              return (
+                                <ChakraButton
+                                  key={slotKey(sl)}
+                                  size="sm"
+                                  w="100%" maxW="260px"
+                                  variant={active ? 'solid' : 'outline'}
+                                  colorScheme={sl.kind === 'ADDED' ? 'purple' : 'green'}
+                                  isDisabled={sl.full}
+                                  onClick={() => setSelectedSlot(slotKey(sl))}
+                                  title={sl.full ? 'Full: 3 pending requests' : `${sl.pending} of ${maxPending} request spots taken`}
+                                >
+                                  {formatTime(sl.start)} – {formatTime(sl.end)}{sl.pending > 0 && !sl.full ? ` (${sl.pending}/${maxPending})` : ''}{sl.full ? ' (full)' : ''}
+                                </ChakraButton>
+                              );
+                            })}
+                          </VStack>
+                        ))}
+                      </VStack>
+                    )}
                   </VStack>
                 )}
               </Box>

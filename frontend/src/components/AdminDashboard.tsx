@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
 import ProfileGate from './ProfileGate';
+import SidebarIdentity from './SidebarIdentity';
 import { statusColor, statusLabel } from './appointmentStatus';
 import AnalyticsReport from './AnalyticsReport';
 // import { QRCodeSVG } from 'qrcode.react';
@@ -261,6 +262,8 @@ export default function AdminDashboard() {
           <div style={{ marginTop: "7px", width: "20px", height: "3px", background: "#2563eb", borderRadius: "2px" }} />
         </div>
 
+        <SidebarIdentity name={userName || ''} />
+
         <nav style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
           {[
             { page: "home", label: "Class Schedules" },
@@ -342,7 +345,7 @@ export default function AdminDashboard() {
             {activePage === 'analytics' && "Reports & Analytics"}
             {activePage === 'records' && "Consultation Records"}
           </Heading>
-          <Text color={mutedText} mt={1}>Welcome back, {userName}</Text>
+          <Text color={mutedText} mt={1}>Welcome, {userName}</Text>
         </Box>
       
 
