@@ -105,7 +105,7 @@ export default function AdminDashboard() {
     return () => clearInterval(id);
   }, []);
 
-  // Reports & Analytics charts now come from the backend (GET /api/analytics/overview),
+  // Reports & Analytics charts now come from the backend (GET /api/analytics/report),
   // rendered by <AnalyticsReport />. Consultation Records below still uses `appointments`.
 
   const consultationRecords = React.useMemo(() => {
