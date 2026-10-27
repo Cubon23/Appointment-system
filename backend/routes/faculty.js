@@ -666,6 +666,23 @@ router.patch('/users/:id/email', requireAuth(['ADMIN']), async (req, res) => {
   }
 });
 
+// ADMIN: correct a user's display name (Google names are copied once at account creation).
+router.patch('/users/:id/name', requireAuth(['ADMIN']), async (req, res) => {
+  try {
+    const name = String(req.body.name || '').replace(/\s+/g, ' ').trim();
+    if (name.length < 2 || name.length > 100) {
+      return res.status(400).json({ error: 'Name must be 2 to 100 characters.' });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.name = name;
+    await user.save();
+    res.json({ message: `Name updated to ${name}.`, user: { _id: user._id, name: user.name } });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not change the name.' });
+  }
+});
+
 // 12. GET ROUTE: Fetch appointments for one specific faculty member
 router.get('/appointments/me/:facultyId', requireAuth(['FACULTY','ADMIN','DEAN']), ownerOrStaff(r => r.params.facultyId), async (req, res) => {
   try {
