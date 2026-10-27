@@ -31,7 +31,8 @@ const AppointmentSchema = new mongoose.Schema({
   casePresented:     { type: String },
   interventionTaken: { type: String },
   remarks:           { type: String },
-  completedAt:       { type: Date }
+  completedAt:       { type: Date },
+  isDemo:            { type: Boolean } // set only on records made by scripts/demoData.js
 }, { timestamps: true });
 
 module.exports = mongoose.model('Appointment', AppointmentSchema);

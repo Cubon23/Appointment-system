@@ -87,6 +87,7 @@ facultyId: {
   flaggedDate: { type: String, default: '' },
   flaggedReason: { type: String, default: '' },
   statusNote: { type: String, default: '' },
+  isDemo: { type: Boolean }, // set only on records made by scripts/demoData.js, so they can be removed
 }, { timestamps: true });
 
 
