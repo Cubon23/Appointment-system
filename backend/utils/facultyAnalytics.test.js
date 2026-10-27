@@ -5,35 +5,45 @@ const { buildFacultyAnalytics } = require('./facultyAnalytics');
 const apt = (o) => ({ status: 'COMPLETED', date: '2026-10-20', time: '09:00', duration: 60, studentSection: 'BS INFO 4D', reason: 'Capstone / Thesis Consultation', studentId: 's1', ...o });
 const today = '2026-10-26';
 
-test('counts outcomes and completion rate', () => {
+test('pending requests are not counted anywhere', () => {
+  const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({}), apt({ status: 'PENDING' })] });
+  assert.strictEqual(r.outcomes.requests, 1);
+  assert.strictEqual(r.outcomes.pending, undefined);
+  assert.strictEqual(r.hours, undefined); // consultation-hour use is no longer reported
+});
+test('counts outcomes, completion, missed and approval rates', () => {
   const r = buildFacultyAnalytics({ todayIso: today, appointments: [
     apt({}), apt({}), apt({ status: 'MISSED (STUDENT)' }), apt({ status: 'CANCELLED BY FACULTY' }),
-    apt({ status: 'PENDING' }), apt({ status: 'REJECTED' }), apt({ status: 'CANCELLED BY STUDENT' }),
+    apt({ status: 'REJECTED' }), apt({ status: 'CANCELLED BY STUDENT' }), apt({ status: 'APPROVED' }),
   ] });
-  assert.strictEqual(r.outcomes.total, 7);
   assert.strictEqual(r.outcomes.completed, 2);
   assert.strictEqual(r.outcomes.studentNoShows, 1);
-  assert.strictEqual(r.outcomes.cancelledByFaculty, 1);
-  assert.strictEqual(r.outcomes.completionRate, 50); // 2 of 4 that should have happened
+  assert.strictEqual(r.outcomes.completionRate, 66.7); // 2 / (2 completed + 1 missed)
+  assert.strictEqual(r.outcomes.missedRate, 33.3);
+  assert.strictEqual(r.outcomes.approvalRate, 83.3);   // 5 approved-or-later, 1 declined
 });
-test('completion rate is null when nothing has happened yet', () => {
-  assert.strictEqual(buildFacultyAnalytics({ todayIso: today, appointments: [apt({ status: 'PENDING' })] }).outcomes.completionRate, null);
+test('rates are null when nothing has happened yet', () => {
+  const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({ status: 'PENDING' })] });
+  assert.strictEqual(r.outcomes.completionRate, null);
+  assert.strictEqual(r.outcomes.approvalRate, null);
 });
-test('utilization = booked minutes in last 4 weeks over 4 weeks of available hours', () => {
+test('an accepted appeal does not reduce the miss count', () => {
+  const missed = apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'ACCEPTED', reason: 'Family Emergency' } });
+  const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({}), missed] });
+  assert.strictEqual(r.outcomes.studentNoShows, 1);
+  assert.strictEqual(r.appeals.summary.accepted, 1);
+  assert.deepStrictEqual(r.appeals.rows, [{ program: 'BS INFO', year: '4', section: 'D', reason: 'Family Emergency', accepted: 1, rejected: 0 }]);
+});
+test('heatmap window follows the consultation hours', () => {
   const r = buildFacultyAnalytics({
     todayIso: today,
-    official: [{ dayOfWeek: 2, startTime: '09:00', endTime: '11:00' }],  // 120 min/week
-    added: [{ dayOfWeek: 4, startTime: '13:00', endTime: '14:00' }],     // +60
-    appointments: [apt({}), apt({ date: '2026-10-13' }), apt({ date: '2026-08-01' })], // third is outside the window
+    official: [{ dayOfWeek: 2, startTime: '09:00', endTime: '11:00' }],
+    added: [{ dayOfWeek: 4, startTime: '13:00', endTime: '14:00' }],
+    appointments: [apt({}), apt({})], // 2026-10-20 is a Tuesday, 9 AM
   });
-  assert.strictEqual(r.hours.weeklyAvailableMinutes, 180);
-  assert.strictEqual(r.hours.bookedMinutesLast4Weeks, 120);
-  assert.strictEqual(r.hours.utilizationPercent, 16.7); // 120 / 720
-});
-test('busiest day and hour use consultations that happened or are booked', () => {
-  const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({}), apt({}), apt({ status: 'REJECTED' })] });
-  assert.deepStrictEqual(r.hours.byDay.find(d => d.label === 'Tue'), { label: 'Tue', value: 2 }); // 2026-10-20 is a Tuesday
-  assert.deepStrictEqual(r.hours.byHour, [{ label: '9 AM', value: 2 }]);
+  assert.deepStrictEqual(r.heatmap.hours.map(h => h.hour), [9, 10, 11, 12, 13]);
+  assert.strictEqual(r.heatmap.cells[0][1], 2); // 9 AM row, Tue column
+  assert.strictEqual(r.heatmap.max, 2);
 });
 test('students split by program and year; purposes grouped case-insensitively', () => {
   const r = buildFacultyAnalytics({ todayIso: today, appointments: [
@@ -43,9 +53,14 @@ test('students split by program and year; purposes grouped case-insensitively', 
   assert.strictEqual(r.students.purposes.items[0].count, 3);
   assert.strictEqual(r.students.uniqueStudents, 2);
 });
+test('monthly trend covers six months ending now', () => {
+  const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({})] });
+  assert.strictEqual(r.monthly.length, 6);
+  assert.deepStrictEqual(r.monthly[5], { label: "Oct '26", value: 1 });
+});
 test('no data yields zeros and nulls, not NaN', () => {
   const r = buildFacultyAnalytics({ todayIso: today, appointments: [] });
-  assert.strictEqual(r.outcomes.total, 0);
-  assert.strictEqual(r.hours.utilizationPercent, null);
+  assert.strictEqual(r.outcomes.requests, 0);
   assert.deepStrictEqual(r.students.purposes, { total: 0, items: [] });
+  assert.strictEqual(r.heatmap.max, 0);
 });

@@ -1,30 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Box, Heading, SimpleGrid, Spinner, Text, VStack, HStack, Progress, useColorModeValue } from '@chakra-ui/react';
+import { Heading, SimpleGrid, Spinner, Text, VStack } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import SimpleBarChart from './SimpleBarChart';
+import { ChartCard, HBarChart, Heatmap, KpiTile, LineChart, StackedBar } from './AnalyticsCharts';
+import type { HeatmapData, LV } from './AnalyticsCharts';
+import { AppealsByReason } from './AnalyticsTables';
+import type { AppealRow } from './AnalyticsTables';
+import { useColorModeValue } from '@chakra-ui/react';
 
-interface LV { label: string; value: number }
 interface Data {
   outcomes: {
-    total: number; pending: number; approved: number; completed: number; rejected: number;
-    cancelledByStudent: number; cancelledByFaculty: number; studentNoShows: number; missedByFaculty: number;
-    completionRate: number | null; appeals: { received: number; accepted: number; made: number };
+    requests: number; completed: number; upcoming: number; declined: number; studentNoShows: number; missedByFaculty: number;
+    cancelledByStudent: number; cancelledByFaculty: number; completionRate: number | null; missedRate: number | null; approvalRate: number | null;
   };
-  hours: {
-    weeklyAvailableMinutes: number; officialMinutes: number; addedMinutes: number; bookedMinutesLast4Weeks: number;
-    utilizationPercent: number | null; byDay: LV[]; byHour: LV[];
-  };
+  weekly: LV[];
+  monthly: LV[];
+  heatmap: HeatmapData;
+  appeals: { summary: { appealRate: number | null; accepted: number; rejected: number; acceptanceRate: number | null; faculty: { made: number; accepted: number; rejected: number } }; rows: AppealRow[]; reasons: string[] };
   students: { uniqueStudents: number; byProgram: LV[]; byYear: LV[]; purposes: { total: number; items: { label: string; count: number; percent: number }[] } };
 }
 
-const hrs = (min: number) => `${Math.round((min / 60) * 10) / 10} h`;
+const pctText = (n: number | null) => (n === null ? '—' : `${n}%`);
 
 // A faculty member's own analytics. The server only ever returns the logged-in faculty's data.
 export default function FacultyAnalytics() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState('');
-  const cardBg = useColorModeValue('#ffffff', '#111d30');
-  const border = useColorModeValue('#dde3ec', '#1e3048');
   const text = useColorModeValue('#0f2240', '#e8f0fe');
   const muted = useColorModeValue('#6b7fa0', '#7a93b0');
 
@@ -37,81 +38,56 @@ export default function FacultyAnalytics() {
 
   if (error) return <Text color="red.500">{error}</Text>;
   if (!data) return <Spinner />;
-  const { outcomes: o, hours: h, students: s } = data;
-
-  const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <Box bg={cardBg} p={5} borderRadius="lg" borderWidth="1px" borderColor={border} shadow="sm">
-      <Heading size="sm" color={text} mb={3}>{title}</Heading>
-      {children}
-    </Box>
-  );
-  const Stat = ({ label, value, hint }: { label: string; value: string | number; hint?: string }) => (
-    <Box>
-      <Text fontSize="2xl" fontWeight="800" color={text} lineHeight="1.1">{value}</Text>
-      <Text fontSize="xs" color={muted}>{label}</Text>
-      {hint && <Text fontSize="10px" color={muted}>{hint}</Text>}
-    </Box>
-  );
+  const { outcomes: o, students: s, appeals } = data;
 
   return (
     <VStack align="stretch" spacing={6}>
       <Heading size="md" color={text}>My Analytics</Heading>
 
-      <Card title="Request outcomes">
-        <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mb={4}>
-          <Stat label="Total requests" value={o.total} />
-          <Stat label="Completed" value={o.completed} />
-          <Stat label="Completion rate" value={o.completionRate === null ? '—' : `${o.completionRate}%`} hint="completed of those that should have happened" />
-          <Stat label="Pending now" value={o.pending} />
-        </SimpleGrid>
-        <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
-          <Stat label="Approved (upcoming)" value={o.approved} />
-          <Stat label="Declined" value={o.rejected} />
-          <Stat label="Student no-shows" value={o.studentNoShows} />
-          <Stat label="Cancelled by students" value={o.cancelledByStudent} />
-          <Stat label="Cancelled by me" value={o.cancelledByFaculty} />
-          <Stat label="Missed by me" value={o.missedByFaculty} />
-          <Stat label="Student appeals received" value={o.appeals.received} hint={`${o.appeals.accepted} accepted`} />
-          <Stat label="My appeals" value={o.appeals.made} />
-        </SimpleGrid>
-      </Card>
+      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
+        <KpiTile label="Requests" value={o.requests} sub={`${s.uniqueStudents} different students`} accent="#2563eb" hint="Requests you reviewed or that happened. Requests still waiting for your answer are not counted." />
+        <KpiTile label="Completed" value={o.completed} sub={`completion rate ${pctText(o.completionRate)}`} accent="#16a34a" hint="Completion rate = completed ÷ (completed + missed)." />
+        <KpiTile label="Student no-shows" value={o.studentNoShows} sub={`missed rate ${pctText(o.missedRate)}`} accent="#f08a3c" hint="Appeals never reduce this number." />
+        <KpiTile label="Approval rate" value={pctText(o.approvalRate)} sub={`${o.declined} declined`} accent="#8b5cf6" hint="Approved requests ÷ (approved + declined)." />
+      </SimpleGrid>
 
-      <Card title="Consultation hours use">
-        <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4} mb={4}>
-          <Stat label="Hours available per week" value={hrs(h.weeklyAvailableMinutes)} hint={`${hrs(h.officialMinutes)} fixed + ${hrs(h.addedMinutes)} added`} />
-          <Stat label="Booked, last 4 weeks" value={hrs(h.bookedMinutesLast4Weeks)} />
-          <Stat label="Utilization" value={h.utilizationPercent === null ? '—' : `${h.utilizationPercent}%`} hint="booked ÷ available over 4 weeks" />
-        </SimpleGrid>
-        {h.utilizationPercent !== null && <Progress value={h.utilizationPercent} size="sm" borderRadius="full" colorScheme="blue" mb={5} />}
-        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6}>
-          <Box><Text fontSize="xs" fontWeight="700" color={muted} mb={2}>Consultations by day</Text><SimpleBarChart data={h.byDay} height={150} /></Box>
-          <Box>
-            <Text fontSize="xs" fontWeight="700" color={muted} mb={2}>Consultations by start time</Text>
-            {h.byHour.length ? <SimpleBarChart data={h.byHour} color="#7c3aed" height={150} /> : <Text fontSize="sm" color={muted}>No consultations yet.</Text>}
-          </Box>
-        </SimpleGrid>
-      </Card>
+      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+        <ChartCard title="Requests per month" hint="Last 6 months.">
+          <LineChart data={data.monthly} color="#2563eb" />
+        </ChartCard>
+        <ChartCard title="Busiest days and hours" hint="Requests by weekday and hour, over your consultation hours.">
+          <Heatmap data={data.heatmap} />
+        </ChartCard>
+      </SimpleGrid>
 
-      <Card title="Students and purposes">
-        <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
-          <Box>
-            <Stat label="Different students" value={s.uniqueStudents} />
-          </Box>
-          <Box><Text fontSize="xs" fontWeight="700" color={muted} mb={2}>By program</Text>{s.byProgram.length ? <SimpleBarChart data={s.byProgram} color="#0891b2" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</Box>
-          <Box><Text fontSize="xs" fontWeight="700" color={muted} mb={2}>By year level</Text>{s.byYear.length ? <SimpleBarChart data={s.byYear} color="#059669" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</Box>
-        </SimpleGrid>
-        <Text fontSize="xs" fontWeight="700" color={muted} mt={5} mb={2}>Purpose of meeting</Text>
-        {s.purposes.items.length === 0 ? <Text fontSize="sm" color={muted}>No requests yet.</Text> : (
-          <VStack align="stretch" spacing={2}>
-            {s.purposes.items.map(p => (
-              <Box key={p.label}>
-                <HStack justify="space-between" fontSize="sm" color={text}><Text noOfLines={1}>{p.label}</Text><Text color={muted} whiteSpace="nowrap">{p.count} · {p.percent}%</Text></HStack>
-                <Progress value={p.percent} size="xs" borderRadius="full" colorScheme="blue" />
-              </Box>
-            ))}
-          </VStack>
-        )}
-      </Card>
+      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+        <ChartCard title="What happened to requests">
+          <StackedBar segments={[
+            { label: 'Completed', value: o.completed, color: '#16a34a' },
+            { label: 'Upcoming', value: o.upcoming, color: '#2563eb' },
+            { label: 'Declined', value: o.declined, color: '#dc2626' },
+            { label: 'No-show (student)', value: o.studentNoShows, color: '#f08a3c' },
+            { label: 'Missed by me', value: o.missedByFaculty, color: '#e11d48' },
+            { label: 'Cancelled by student', value: o.cancelledByStudent, color: '#94a3b8' },
+            { label: 'Cancelled by me', value: o.cancelledByFaculty, color: '#64748b' },
+          ]} />
+        </ChartCard>
+        <ChartCard title="Why students come" hint={`${s.purposes.total} requests, top reasons.`}>
+          <HBarChart color="#0891b2" items={s.purposes.items.map(p => ({ label: p.label, value: p.count, note: `${p.percent}%` }))} emptyText="No requests yet." />
+        </ChartCard>
+      </SimpleGrid>
+
+      <ChartCard title="Appeals from my students, by reason" hint="Appeals you have reviewed. Accepted appeals do not remove a no-show from your totals.">
+        <AppealsByReason rows={appeals.rows} reasons={appeals.reasons} />
+        <Text fontSize="xs" color={muted} mt={2}>
+          Appeal rate {pctText(appeals.summary.appealRate)} · acceptance rate {pctText(appeals.summary.acceptanceRate)} · my own appeals to the Dean: {appeals.summary.faculty.made}
+        </Text>
+      </ChartCard>
+
+      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+        <ChartCard title="Students by program">{s.byProgram.length ? <SimpleBarChart data={s.byProgram} color="#0891b2" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
+        <ChartCard title="Students by year level">{s.byYear.length ? <SimpleBarChart data={s.byYear} color="#059669" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
+      </SimpleGrid>
     </VStack>
   );
 }

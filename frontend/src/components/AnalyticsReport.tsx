@@ -1,93 +1,59 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Box, Button, Divider, Flex, Heading, HStack, Select, SimpleGrid, Spinner, Tab, TabList, TabPanel, TabPanels, Table,
-  Tbody, Td, Text, Th, Thead, Tabs, Tr, VStack, useColorModeValue,
+  Accordion, AccordionButton, AccordionItem, AccordionPanel, Box, Button, Flex, HStack, Select, SimpleGrid, Spinner, Tab, TabList,
+  TabPanel, TabPanels, Table, Tabs, Tbody, Td, Text, Th, Thead, Tr, VStack, useColorModeValue, useDisclosure,
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import SimpleBarChart from './SimpleBarChart';
-import IdleHoursPanel from './IdleHoursPanel';
+import { ChartCard, HBarChart, Heatmap, KpiTile, LineChart, StackedBar } from './AnalyticsCharts';
+import type { HeatmapData, LV } from './AnalyticsCharts';
+import { AppealsByReason, CohortTable, DrilldownDrawer } from './AnalyticsTables';
+import type { AppealRow, CohortRow, Drilldown } from './AnalyticsTables';
 
-// Shared by AdminDashboard and DeanDashboard. Everything shown here is calculated by the
-// database (MongoDB aggregation pipelines in routes/analytics.js) and fetched in ONE request.
-// Charts are plain SVG/divs — no charting library — matching SimpleBarChart.
-
-interface LabelValue { label: string; value: number }
-interface Overview {
+interface Window { total: number; last4: number; prev4: number }
+interface ReportData {
   generatedAt: string;
-  demographics: { totalStudents: number; totalFaculty: number; byProgram: LabelValue[]; byYear: LabelValue[]; byGender: LabelValue[]; byFacultyGender: LabelValue[] };
-  statusSummary: { PENDING: number; APPROVED: number; REJECTED: number; COMPLETED: number; CANCELLED: number; MISSED: number; total: number };
+  kpis: { requests: Window; completed: Window; missed: Window & { student: number; faculty: number }; completionRate: number | null; missedRate: number | null; activeFaculty: number };
   outcomes: {
-    total: number; pending: number; approved: number; completed: number; rejected: number; other: number;
-    cancelled: { total: number; byStudent: number; byFaculty: number; onLeave: number };
-    missed: { total: number; student: number; faculty: number };
+    requests: number; completed: number; upcoming: number; declined: number; missedStudent: number; missedFaculty: number;
+    cancelledStudent: number; cancelledFaculty: number;
   };
-  weeklyMissed: LabelValue[];
-  facultyOutcomes: { facultyId: string; name: string; total: number; completed: number; rejected: number; cancelledByFaculty: number; studentNoShows: number; missedByFaculty: number }[];
+  weekly: LV[];
+  weeklyMissed: LV[];
+  facultyLoad: { id: string; name: string; requests: number; completed: number }[];
   purposes: { total: number; items: { label: string; count: number; percent: number }[] };
-  studentOutcomes: { studentKey: string; name: string; section: string; completed: number; rejected: number; cancelledByStudent: number; noShows: number }[];
-  utilization: { facultyId: string; name: string; programPosition?: string; completed: number; total: number }[];
-  weekly: LabelValue[];
+  heatmap: HeatmapData;
+  cohortStudents: CohortRow[];
+  gender: { students: LV[]; faculty: LV[] };
+  facultyOutcomes: { facultyId: string; name: string; programPosition: string; requests: number; completed: number; declined: number; cancelledByFaculty: number; missedByFaculty: number; studentNoShows: number }[];
+  studentOutcomes: { studentKey: string; name: string; section: string; completed: number; declined: number; cancelledByStudent: number; noShows: number }[];
+  appeals: {
+    summary: { appealRate: number | null; accepted: number; rejected: number; acceptanceRate: number | null; faculty: { made: number; accepted: number; rejected: number } };
+    rows: AppealRow[]; reasons: string[];
+  };
+  drilldown: { requests: Drilldown; completed: Drilldown; missed: Drilldown; cancelled: Drilldown };
+  accountHealth?: {
+    byRole: LV[];
+    profile: { role: string; complete: number; incomplete: number; incompleteList: { name: string; email: string }[] }[];
+  };
 }
 
-const DONUT_COLORS = ['#2563eb', '#16a34a', '#f08a3c', '#8b5cf6', '#e11d48', '#0891b2', '#94a3b8'];
+const pctText = (n: number | null) => (n === null ? '—' : `${n}%`);
+const trend = (w: Window) => `last 4 weeks: ${w.last4} (before that: ${w.prev4})`;
+const ROLE_NAMES: Record<string, string> = { STUDENT: 'Students', FACULTY: 'Faculty', DEAN: 'Deans', ADMIN: 'Admins' };
+const OUTCOME_COLORS = { completed: '#16a34a', upcoming: '#2563eb', declined: '#dc2626', missedStudent: '#f08a3c', missedFaculty: '#e11d48', cancelledStudent: '#94a3b8', cancelledFaculty: '#64748b' };
 
-// ── Small building blocks ───────────────────────────────────────────────────
-
-function StatCard({ label, value, accent, bg, border, text, muted }: {
-  label: string; value: number | string; accent: string; bg: string; border: string; text: string; muted: string;
-}) {
-  return (
-    <Box bg={bg} borderWidth="1px" borderColor={border} borderLeftWidth="4px" borderLeftColor={accent} borderRadius="lg" p={4}>
-      <Text fontSize="xs" fontWeight="700" textTransform="uppercase" letterSpacing="0.04em" color={muted}>{label}</Text>
-      <Text fontSize="3xl" fontWeight="800" lineHeight="1.2" color={text}>{value}</Text>
-    </Box>
-  );
-}
-
-function DonutChart({ items, centerLabel, centerSub, textColor, mutedColor }: {
-  items: { label: string; count: number }[]; centerLabel: string; centerSub: string; textColor: string; mutedColor: string;
-}) {
-  const r = 70;
-  const stroke = 28;
-  const circumference = 2 * Math.PI * r;
-  const total = items.reduce((s, i) => s + i.count, 0) || 1;
-  let offset = 0;
-  return (
-    <svg viewBox="0 0 200 200" width="190" height="190" role="img" aria-label="Consultation purpose distribution">
-      <g transform="rotate(-90 100 100)">
-        <circle cx="100" cy="100" r={r} fill="none" stroke="#94a3b8" strokeOpacity="0.25" strokeWidth={stroke} />
-        {items.map((it, i) => {
-          const len = (it.count / total) * circumference;
-          const circle = (
-            <circle
-              key={it.label}
-              cx="100" cy="100" r={r} fill="none"
-              stroke={DONUT_COLORS[i % DONUT_COLORS.length]} strokeWidth={stroke}
-              strokeDasharray={`${len} ${circumference - len}`} strokeDashoffset={-offset}
-            />
-          );
-          offset += len;
-          return circle;
-        })}
-      </g>
-      <text x="100" y="100" textAnchor="middle" fontSize="28" fontWeight="800" fill={textColor}>{centerLabel}</text>
-      <text x="100" y="120" textAnchor="middle" fontSize="11" fill={mutedColor}>{centerSub}</text>
-    </svg>
-  );
-}
-
-// ── The report ──────────────────────────────────────────────────────────────
-
+// The Reports & Analytics page shared by Admin and Dean. Admin also gets an "Account health" tab.
 export default function AnalyticsReport() {
-  const [data, setData] = useState<Overview | null>(null);
+  const [data, setData] = useState<ReportData | null>(null);
   const [error, setError] = useState('');
-  const [outcomeView, setOutcomeView] = useState<'faculty' | 'student'>('faculty');
   const [loading, setLoading] = useState(true);
+  const [outcomeView, setOutcomeView] = useState<'faculty' | 'student'>('faculty');
+  const [panel, setPanel] = useState<{ title: string; data: Drilldown; studentLabel?: string; facultyLabel?: string } | null>(null);
+  const drawer = useDisclosure();
 
-  // Same palette values the dashboards already use
-  const surface = useColorModeValue('#ffffff', '#111d30');
-  const tint = useColorModeValue('#f6f9fc', '#0c1421');
   const border = useColorModeValue('#dde3ec', '#1e3048');
+  const surface = useColorModeValue('#ffffff', '#111d30');
   const text = useColorModeValue('#0f2240', '#e8f0fe');
   const muted = useColorModeValue('#6b7fa0', '#7a93b0');
 
@@ -95,7 +61,7 @@ export default function AnalyticsReport() {
     setLoading(true);
     setError('');
     try {
-      const res = await authFetch(`${import.meta.env.VITE_API_URL}/api/analytics/overview`);
+      const res = await authFetch(`${import.meta.env.VITE_API_URL}/api/analytics/report`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Could not load analytics.');
       setData(body);
@@ -105,12 +71,9 @@ export default function AnalyticsReport() {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => { load(); }, [load]);
 
-  if (loading && !data) {
-    return <Flex justify="center" py={12}><Spinner color="blue.400" /></Flex>;
-  }
+  if (loading && !data) return <Flex justify="center" py={12}><Spinner color="blue.400" /></Flex>;
   if (error && !data) {
     return (
       <VStack py={8} spacing={3}>
@@ -121,264 +84,194 @@ export default function AnalyticsReport() {
   }
   if (!data) return null;
 
-  const { demographics: demo, statusSummary: st, outcomes, weeklyMissed, facultyOutcomes, studentOutcomes, purposes, utilization, weekly } = data;
-  const demoSeries = [
-    { title: 'By Program', data: demo.byProgram, color: '#2563eb' },
-    { title: 'By Year Level', data: demo.byYear, color: '#16a34a' },
-    { title: 'Student Gender', data: demo.byGender, color: '#8b5cf6' },
-    { title: 'Faculty Gender', data: demo.byFacultyGender, color: '#e11d48' },
-  ];
-  const maxCompleted = Math.max(1, ...utilization.map(u => u.completed));
-  const sectionTitle = { size: 'sm', color: muted, textTransform: 'uppercase' as const, mb: 4 };
+  const { kpis: k, outcomes: o } = data;
+  const open = (title: string, d: Drilldown, studentLabel?: string, facultyLabel?: string) => { setPanel({ title, data: d, studentLabel, facultyLabel }); drawer.onOpen(); };
+  const countCell = (n: number, color: string) => <Td isNumeric color={n > 0 ? color : muted} fontWeight={n > 0 ? 700 : 400}>{n}</Td>;
+  const tableBox = { maxH: '340px', overflowY: 'auto' as const, borderWidth: '1px', borderColor: border, borderRadius: 'md' };
 
-  // One merged table per role. "Completed" appears exactly once (it used to be shown both in the
-  // utilization leaderboard and in the outcomes table), and there is no "Requests" column.
-  const facultyRows = utilization.map(u => {
-    const o = facultyOutcomes.find(f => f.facultyId === u.facultyId);
-    return {
-      ...u,
-      rejected: o?.rejected ?? 0, cancelledByFaculty: o?.cancelledByFaculty ?? 0,
-      missedByFaculty: o?.missedByFaculty ?? 0, studentNoShows: o?.studentNoShows ?? 0,
-    };
-  });
-  const countCell = (n: number, color: string) => (
-    <Td isNumeric color={n > 0 ? color : muted} fontWeight={n > 0 ? 700 : 400}>{n}</Td>
+  const overview = (
+    <VStack align="stretch" spacing={6}>
+      <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={4}>
+        <KpiTile label="Requests" value={k.requests.total} sub={trend(k.requests)} accent="#2563eb" hint="All requests that were reviewed or happened. Requests still waiting for an answer are not counted."
+          onClick={() => open('Requests', data.drilldown.requests)} />
+        <KpiTile label="Completed" value={k.completed.total} sub={trend(k.completed)} accent="#16a34a" onClick={() => open('Completed consultations', data.drilldown.completed)} />
+        <KpiTile label="Missed" value={k.missed.total} sub={`${k.missed.student} by students · ${k.missed.faculty} by faculty · ${pctText(k.missedRate)} of finished`} accent="#f08a3c"
+          hint="Missed rate = missed ÷ (completed + missed). Appeals do not reduce this number."
+          onClick={() => open('Missed consultations', data.drilldown.missed, 'Missed by students', 'Missed by faculty')} />
+        <KpiTile label="Cancelled" value={o.cancelledStudent + o.cancelledFaculty} sub={`${o.cancelledStudent} by students · ${o.cancelledFaculty} by faculty`} accent="#64748b"
+          onClick={() => open('Cancelled consultations', data.drilldown.cancelled, 'Cancelled by students', 'Cancelled by faculty')} />
+        <KpiTile label="Completion rate" value={pctText(k.completionRate)} sub="completed ÷ (completed + missed)" accent="#8b5cf6" hint="Of the consultations that were supposed to happen, how many were completed." />
+      </SimpleGrid>
+
+      <ChartCard title="Requests per week" hint="Last 8 weeks, weeks start on Monday.">
+        <LineChart data={data.weekly} color="#2563eb" />
+      </ChartCard>
+
+      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+        <ChartCard title="What happened to requests" hint="Share of each outcome.">
+          <StackedBar segments={[
+            { label: 'Completed', value: o.completed, color: OUTCOME_COLORS.completed },
+            { label: 'Upcoming', value: o.upcoming, color: OUTCOME_COLORS.upcoming },
+            { label: 'Declined', value: o.declined, color: OUTCOME_COLORS.declined },
+            { label: 'Missed (student)', value: o.missedStudent, color: OUTCOME_COLORS.missedStudent },
+            { label: 'Missed (faculty)', value: o.missedFaculty, color: OUTCOME_COLORS.missedFaculty },
+            { label: 'Cancelled (student)', value: o.cancelledStudent, color: OUTCOME_COLORS.cancelledStudent },
+            { label: 'Cancelled (faculty)', value: o.cancelledFaculty, color: OUTCOME_COLORS.cancelledFaculty },
+          ]} />
+        </ChartCard>
+        <ChartCard title="Faculty load" hint="Requests received per faculty member (completed in brackets).">
+          <HBarChart color="#2563eb" items={data.facultyLoad.slice(0, 8).map(f => ({ label: f.name, value: f.requests, note: `(${f.completed})` }))} emptyText="No faculty requests yet." />
+        </ChartCard>
+      </SimpleGrid>
+    </VStack>
   );
-  const tableBoxProps = {
-    maxH: '320px', overflowY: 'auto' as const, borderWidth: '1px', borderColor: border, borderRadius: 'md',
-    sx: { '@media print': { maxHeight: 'none', overflow: 'visible' } },
-  };
 
-  const facultyOutcomesTable = facultyRows.length > 0 ? (
-    <Box {...tableBoxProps}>
+  const facultyTable = data.facultyOutcomes.length === 0 ? <Text fontSize="sm" color={muted}>No faculty accounts yet.</Text> : (
+    <Box {...tableBox}>
       <Table size="sm">
-        <Thead position="sticky" top={0} bg={surface} zIndex={1}>
-          <Tr>
-            <Th color={muted} w="48px">#</Th>
-            <Th color={muted}>Faculty</Th>
-            <Th color={muted} isNumeric>Completed</Th>
-            <Th color={muted} isNumeric>Rejected</Th>
-            <Th color={muted} isNumeric>Cancelled by faculty</Th>
-            <Th color={muted} isNumeric>Missed by faculty</Th>
-            <Th color={muted} isNumeric>Student no-shows</Th>
-            <Th color={muted} minW="120px">Share of top</Th>
-          </Tr>
-        </Thead>
+        <Thead position="sticky" top={0} bg={surface} zIndex={1}><Tr>
+          <Th color={muted}>Faculty</Th><Th color={muted} isNumeric>Completed</Th><Th color={muted} isNumeric>Declined</Th>
+          <Th color={muted} isNumeric>Cancelled by faculty</Th><Th color={muted} isNumeric>Missed by faculty</Th><Th color={muted} isNumeric>Student no-shows</Th>
+        </Tr></Thead>
         <Tbody>
-          {facultyRows.map((f, i) => (
+          {data.facultyOutcomes.map(f => (
             <Tr key={f.facultyId}>
-              <Td color={muted}>{i + 1}</Td>
-              <Td>
-                <Text fontWeight="600" color={text}>{f.name}</Text>
-                {f.programPosition && <Text fontSize="xs" color={muted}>{f.programPosition}</Text>}
-              </Td>
+              <Td><Text fontWeight="600" color={text}>{f.name}</Text>{f.programPosition && <Text fontSize="xs" color={muted}>{f.programPosition}</Text>}</Td>
               <Td isNumeric fontWeight="700" color={text}>{f.completed}</Td>
-              <Td isNumeric color={text}>{f.rejected}</Td>
-              {countCell(f.cancelledByFaculty, '#64748b')}
-              {countCell(f.missedByFaculty, '#e11d48')}
-              {countCell(f.studentNoShows, '#f08a3c')}
-              <Td>
-                <Box h="8px" borderRadius="4px" bg={tint}>
-                  <Box h="100%" borderRadius="4px" bg="#f08a3c" w={`${(f.completed / maxCompleted) * 100}%`} />
-                </Box>
-              </Td>
+              <Td isNumeric color={text}>{f.declined}</Td>
+              {countCell(f.cancelledByFaculty, '#64748b')}{countCell(f.missedByFaculty, '#e11d48')}{countCell(f.studentNoShows, '#f08a3c')}
             </Tr>
           ))}
         </Tbody>
       </Table>
     </Box>
-  ) : <Text fontSize="sm" color={muted}>No faculty accounts yet.</Text>;
-
-  const studentOutcomesTable = studentOutcomes.length > 0 ? (
-    <Box {...tableBoxProps}>
+  );
+  const studentTable = data.studentOutcomes.length === 0 ? <Text fontSize="sm" color={muted}>No student outcomes yet.</Text> : (
+    <Box {...tableBox}>
       <Table size="sm">
-        <Thead position="sticky" top={0} bg={surface} zIndex={1}>
-          <Tr>
-            <Th color={muted} w="48px">#</Th>
-            <Th color={muted}>Student</Th>
-            <Th color={muted} isNumeric>Completed</Th>
-            <Th color={muted} isNumeric>Rejected</Th>
-            <Th color={muted} isNumeric>Cancelled by student</Th>
-            <Th color={muted} isNumeric>No-shows</Th>
-          </Tr>
-        </Thead>
+        <Thead position="sticky" top={0} bg={surface} zIndex={1}><Tr>
+          <Th color={muted}>Student</Th><Th color={muted} isNumeric>Completed</Th><Th color={muted} isNumeric>Declined</Th>
+          <Th color={muted} isNumeric>Cancelled by student</Th><Th color={muted} isNumeric>No-shows</Th>
+        </Tr></Thead>
         <Tbody>
-          {studentOutcomes.map((s, i) => (
+          {data.studentOutcomes.map(s => (
             <Tr key={s.studentKey}>
-              <Td color={muted}>{i + 1}</Td>
-              <Td>
-                <Text fontWeight="600" color={text}>{s.name}</Text>
-                {s.section && <Text fontSize="xs" color={muted}>{s.section}</Text>}
-              </Td>
+              <Td><Text fontWeight="600" color={text}>{s.name}</Text>{s.section && <Text fontSize="xs" color={muted}>{s.section}</Text>}</Td>
               <Td isNumeric fontWeight="700" color={text}>{s.completed}</Td>
-              <Td isNumeric color={text}>{s.rejected}</Td>
-              {countCell(s.cancelledByStudent, '#64748b')}
-              {countCell(s.noShows, '#f08a3c')}
+              <Td isNumeric color={text}>{s.declined}</Td>
+              {countCell(s.cancelledByStudent, '#64748b')}{countCell(s.noShows, '#f08a3c')}
             </Tr>
           ))}
         </Tbody>
       </Table>
     </Box>
-  ) : <Text fontSize="sm" color={muted}>No student outcomes yet.</Text>;
+  );
 
-  return (
-    <VStack align="stretch" spacing={8}>
-      <HStack justify="space-between" className="no-print">
-        <Text fontSize="xs" color={muted}>
-          Calculated live by the database · updated {new Date(data.generatedAt).toLocaleTimeString()}
-        </Text>
-        <Button size="xs" variant="outline" onClick={load} isLoading={loading}>Refresh</Button>
-      </HStack>
+  const a = data.appeals.summary;
+  const outcomes = (
+    <VStack align="stretch" spacing={6}>
+      <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={4}>
+        <KpiTile label="Appeal rate" value={pctText(a.appealRate)} sub="missed consultations that got an appeal" accent="#f08a3c" hint="Appeals on 'Missed (student)' ÷ all 'Missed (student)'." />
+        <KpiTile label="Appeals accepted" value={a.accepted} sub={`acceptance rate ${pctText(a.acceptanceRate)}`} accent="#16a34a" />
+        <KpiTile label="Appeals rejected" value={a.rejected} accent="#e11d48" />
+        <KpiTile label="Faculty appeals to Dean" value={a.faculty.made} sub={`${a.faculty.accepted} accepted · ${a.faculty.rejected} rejected`} accent="#8b5cf6" />
+        <KpiTile label="Missed by students" value={k.missed.student} sub="appeals never reduce this" accent="#64748b" />
+      </SimpleGrid>
 
-      {/* Metric 2 — status summary cards */}
-      <Box>
-        <Heading {...sectionTitle}>Appointment Status</Heading>
-        <SimpleGrid columns={{ base: 2, md: 6 }} spacing={3}>
-          <StatCard label="Pending" value={st.PENDING} accent="#eab308" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Approved" value={st.APPROVED} accent="#2563eb" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Rejected" value={st.REJECTED} accent="#dc2626" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Completed" value={st.COMPLETED} accent="#16a34a" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Cancelled" value={st.CANCELLED} accent="#94a3b8" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Missed" value={st.MISSED} accent="#f08a3c" bg={tint} border={border} text={text} muted={muted} />
-        </SimpleGrid>
-        <Text fontSize="xs" color={muted} mt={2}>{st.total} appointment requests in total.</Text>
-      </Box>
+      <ChartCard title="Missed consultations per week" hint="Last 8 weeks.">
+        <LineChart data={data.weeklyMissed} color="#f08a3c" />
+      </ChartCard>
 
-      <Divider borderColor={border} />
+      <ChartCard title="Consultation appeals by reason" hint="Student appeals that a faculty member has reviewed. Use the dropdowns to zoom to a program, year level or section.">
+        <AppealsByReason rows={data.appeals.rows} reasons={data.appeals.reasons} />
+      </ChartCard>
 
-      {/* Metric 1 — demographics */}
-      <Box>
-        <Heading {...sectionTitle}>User Demographics</Heading>
-        <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3} mb={5}>
-          <StatCard label="Total Students" value={demo.totalStudents} accent="#2563eb" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Total Faculty" value={demo.totalFaculty} accent="#f08a3c" bg={tint} border={border} text={text} muted={muted} />
-        </SimpleGrid>
-
-        <Box className="no-print">
-          <Tabs variant="soft-rounded" size="sm" colorScheme="blue" isLazy>
-            <TabList mb={3}>
-              {demoSeries.map(s => <Tab key={s.title}>{s.title}</Tab>)}
-            </TabList>
-            <TabPanels>
-              {demoSeries.map(s => (
-                <TabPanel key={s.title} px={0}>
-                  {s.data.length > 0
-                    ? <SimpleBarChart data={s.data} color={s.color} />
-                    : <Text fontSize="sm" color={muted}>No data yet.</Text>}
-                </TabPanel>
-              ))}
-            </TabPanels>
-          </Tabs>
-        </Box>
-
-        {/* When printing, show all three charts (tabs would only print the selected one) */}
-        <Box display="none" sx={{ '@media print': { display: 'block' } }}>
-          {demoSeries.map(s => (
-            <Box key={s.title} mb={4}>
-              <Text fontWeight="700" fontSize="sm" color={text} mb={1}>{s.title}</Text>
-              {s.data.length > 0 ? <SimpleBarChart data={s.data} color={s.color} height={130} /> : <Text fontSize="sm">No data.</Text>}
-            </Box>
-          ))}
-        </Box>
-
-        {[...demo.byGender, ...demo.byFacultyGender].some(g => g.label === 'Not provided') && (
-          <Text fontSize="xs" color={muted} mt={2}>
-            Accounts showing Not provided were created before gender was collected at registration.
-          </Text>
-        )}
-      </Box>
-
-      <Divider borderColor={border} />
-
-      {/* Metric 3 — purpose donut */}
-      <Box>
-        <Heading {...sectionTitle}>Why Students Request Consultations</Heading>
-        {purposes.items.length > 0 ? (
-          <Flex gap={8} align="center" wrap="wrap">
-            <DonutChart
-              items={purposes.items}
-              centerLabel={String(purposes.total)}
-              centerSub="requests"
-              textColor={text}
-              mutedColor={muted}
-            />
-            <VStack align="stretch" spacing={2} flex="1" minW="220px">
-              {purposes.items.map((it, i) => (
-                <HStack key={it.label} justify="space-between">
-                  <HStack spacing={2}>
-                    <Box w="12px" h="12px" borderRadius="3px" bg={DONUT_COLORS[i % DONUT_COLORS.length]} flexShrink={0} />
-                    <Text fontSize="sm" color={text}>{it.label}</Text>
-                  </HStack>
-                  <Text fontSize="sm" color={muted}><b style={{ color: text }}>{it.percent}%</b> · {it.count}</Text>
-                </HStack>
-              ))}
-            </VStack>
-          </Flex>
-        ) : <Text fontSize="sm" color={muted}>No appointment requests yet.</Text>}
-      </Box>
-
-      <Divider borderColor={border} />
-
-      {/* Appointments per week (carried over from the previous report) */}
-      <Box>
-        <Heading {...sectionTitle}>Appointments per Week (last 8 weeks)</Heading>
-        <SimpleBarChart data={weekly} color="#16a34a" />
-      </Box>
-
-      <Divider borderColor={border} />
-
-      {/* Metric 4 — outcomes per faculty / per student (dropdown) */}
-      <Box>
-        <HStack justify="space-between" align="center" mb={4} wrap="wrap" spacing={3}>
-          <Heading size="sm" color={muted} textTransform="uppercase">
-            {outcomeView === 'faculty' ? 'Faculty Outcomes' : 'Student Outcomes'}
-          </Heading>
-          <Select
-            size="sm" w="160px" className="no-print" value={outcomeView}
-            onChange={(e) => setOutcomeView(e.target.value as 'faculty' | 'student')}
-            color={text} borderColor={border}
-          >
+      <ChartCard title={outcomeView === 'faculty' ? 'Faculty outcomes' : 'Student outcomes'}>
+        <HStack mb={3}>
+          <Select size="sm" w="160px" value={outcomeView} onChange={e => setOutcomeView(e.target.value as 'faculty' | 'student')} color={text} borderColor={border} aria-label="Outcome view">
             <option value="faculty">Faculty</option>
             <option value="student">Student</option>
           </Select>
         </HStack>
-        <Box className="no-print">
-          {outcomeView === 'faculty' ? facultyOutcomesTable : studentOutcomesTable}
-        </Box>
-        {/* When printing, include both tables (the dropdown only shows one) */}
-        <Box display="none" sx={{ '@media print': { display: 'block' } }}>
-          <Text fontWeight="700" fontSize="sm" color={text} mb={1}>Faculty Outcomes</Text>
-          {facultyOutcomesTable}
-          <Text fontWeight="700" fontSize="sm" color={text} mt={4} mb={1}>Student Outcomes</Text>
-          {studentOutcomesTable}
-        </Box>
-      </Box>
+        {outcomeView === 'faculty' ? facultyTable : studentTable}
+      </ChartCard>
+    </VStack>
+  );
 
-      <Divider borderColor={border} />
+  const demand = (
+    <VStack align="stretch" spacing={6}>
+      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
+        <ChartCard title="Why students request consultations" hint={`${data.purposes.total} requests, top reasons.`}>
+          <HBarChart color="#0891b2" items={data.purposes.items.map(p => ({ label: p.label, value: p.count, note: `${p.percent}%` }))} emptyText="No requests yet." />
+        </ChartCard>
+        <ChartCard title="Busiest days and hours" hint="Requests by weekday and hour, over the actual consultation-hour window.">
+          <Heatmap data={data.heatmap} />
+        </ChartCard>
+      </SimpleGrid>
 
-      {/* Rejected / cancelled / missed — who was behind each one */}
-      <Box>
-        <Heading {...sectionTitle}>Rejected, Cancelled &amp; Missed Consultations</Heading>
-        <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={3}>
-          <StatCard label="Rejected" value={outcomes.rejected} accent="#dc2626" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Cancelled by student" value={outcomes.cancelled.byStudent} accent="#94a3b8" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Cancelled by faculty" value={outcomes.cancelled.byFaculty} accent="#64748b" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Cancelled (on leave)" value={outcomes.cancelled.onLeave} accent="#8b5cf6" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Missed by student" value={outcomes.missed.student} accent="#f08a3c" bg={tint} border={border} text={text} muted={muted} />
-          <StatCard label="Missed by faculty" value={outcomes.missed.faculty} accent="#e11d48" bg={tint} border={border} text={text} muted={muted} />
-        </SimpleGrid>
-        <Text fontSize="xs" color={muted} mt={2}>
-          “Missed by student” = the faculty marked a no-show. “Missed by faculty” = an approved consultation that was never completed or marked by the end of its day.
-        </Text>
+      <ChartCard title="Registered students by program and year level" hint="Use the dropdowns to zoom in; choose a year level to see its sections.">
+        <CohortTable rows={data.cohortStudents} />
+      </ChartCard>
 
-        <Heading size="xs" color={muted} textTransform="uppercase" mt={6} mb={2}>Missed consultations per week (last 8 weeks)</Heading>
-        <SimpleBarChart data={weeklyMissed} color="#f08a3c" height={130} />
-      </Box>
+      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+        <ChartCard title="Student gender"><SimpleBarChart data={data.gender.students} color="#8b5cf6" height={140} /></ChartCard>
+        <ChartCard title="Faculty gender" hint={`${k.activeFaculty} active faculty.`}><SimpleBarChart data={data.gender.faculty} color="#e11d48" height={140} /></ChartCard>
+      </SimpleGrid>
+      {[...data.gender.students, ...data.gender.faculty].some(g => g.label === 'Not provided') && (
+        <Text fontSize="xs" color={muted}>Accounts showing Not provided were created before gender was collected.</Text>
+      )}
+    </VStack>
+  );
 
-      <Divider borderColor={border} />
+  const health = data.accountHealth && (
+    <VStack align="stretch" spacing={6}>
+      <ChartCard title="Users by role" hint="Active accounts.">
+        <HBarChart color="#2563eb" items={data.accountHealth.byRole.map(r => ({ label: ROLE_NAMES[r.label] || r.label, value: r.value }))} />
+      </ChartCard>
+      <ChartCard title="Profile completion" hint="Students without a finished profile can browse but not book. Open a row to see who.">
+        <Accordion allowMultiple>
+          {data.accountHealth.profile.map(p => (
+            <AccordionItem key={p.role} borderColor={border} isDisabled={p.incomplete === 0}>
+              <AccordionButton px={1}>
+                <Flex flex="1" justify="space-between" align="center" gap={3}>
+                  <Text fontWeight="600" color={text} textAlign="left">{ROLE_NAMES[p.role] || p.role}</Text>
+                  <Text fontSize="sm" color={muted}>{p.complete} complete · <b style={{ color: p.incomplete ? '#f08a3c' : undefined }}>{p.incomplete} incomplete</b></Text>
+                </Flex>
+              </AccordionButton>
+              <AccordionPanel>
+                {p.incompleteList.map(u => (
+                  <Flex key={u.email} justify="space-between" py={1} gap={3}>
+                    <Text fontSize="sm" color={text}>{u.name}</Text><Text fontSize="xs" color={muted} noOfLines={1}>{u.email}</Text>
+                  </Flex>
+                ))}
+              </AccordionPanel>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </ChartCard>
+    </VStack>
+  );
 
-      {/* Consultation hours that nobody requested, week by week */}
-      <IdleHoursPanel />
+  return (
+    <VStack align="stretch" spacing={4}>
+      <HStack justify="space-between" className="no-print">
+        <Text fontSize="xs" color={muted}>Updated {new Date(data.generatedAt).toLocaleTimeString()}</Text>
+        <Button size="xs" variant="outline" onClick={load} isLoading={loading}>Refresh</Button>
+      </HStack>
+      {/* Printing shows every tab's content one after another, without the tab buttons. */}
+      <Tabs variant="soft-rounded" size="sm" colorScheme="blue"
+        sx={{ '@media print': { '[role=tabpanel]': { display: 'block !important' }, '[role=tablist]': { display: 'none' } } }}>
+        <TabList mb={4} flexWrap="wrap" gap={1}>
+          <Tab>Overview</Tab><Tab>Outcomes</Tab><Tab>Demand</Tab>{health && <Tab>Account health</Tab>}
+        </TabList>
+        <TabPanels>
+          <TabPanel px={0}>{overview}</TabPanel>
+          <TabPanel px={0}>{outcomes}</TabPanel>
+          <TabPanel px={0}>{demand}</TabPanel>
+          {health && <TabPanel px={0}>{health}</TabPanel>}
+        </TabPanels>
+      </Tabs>
+      <DrilldownDrawer isOpen={drawer.isOpen} onClose={drawer.onClose} title={panel?.title || ''} data={panel?.data || null} studentLabel={panel?.studentLabel} facultyLabel={panel?.facultyLabel} />
     </VStack>
   );
 }
