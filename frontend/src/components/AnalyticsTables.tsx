@@ -8,7 +8,7 @@ import {
 // All years -> one row per year level; one year chosen -> one row per section.
 
 export interface CohortRow { program: string; year: string; section: string; count: number }
-export interface AppealRow { program: string; year: string; section: string; reason: string; accepted: number; rejected: number }
+export interface AppealRow { program: string; year: string; section: string; reason: string; count: number }
 export interface ActorCount { name: string; count: number }
 export interface Drilldown { students: ActorCount[]; faculty: ActorCount[] }
 
@@ -57,7 +57,7 @@ function useFiltered<T extends { program: string; year: string; section: string 
 }
 
 // Registered students by program (columns) and year level or section (rows).
-export function CohortTable({ rows }: { rows: CohortRow[] }) {
+export function CohortTable({ rows, emptyText = 'No registered students for this selection.', note = 'Counts students registered in this system (from their profiles), not official school enrollment.' }: { rows: CohortRow[]; emptyText?: string; note?: string }) {
   const t = useTheme();
   const f = useFiltered(rows);
   const cols = f.program === 'All' ? f.programs : [f.program];
@@ -67,7 +67,7 @@ export function CohortTable({ rows }: { rows: CohortRow[] }) {
   return (
     <Box>
       <FilterBar programs={f.programs} years={f.years} program={f.program} year={f.year} onProgram={f.setProgram} onYear={f.setYear} />
-      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>No registered students for this selection.</Text> : (
+      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>{emptyText}</Text> : (
         <Box overflowX="auto" borderWidth="1px" borderColor={t.border} borderRadius="md">
           <Table size="sm">
             <Thead><Tr>
@@ -95,7 +95,7 @@ export function CohortTable({ rows }: { rows: CohortRow[] }) {
           </Table>
         </Box>
       )}
-      <Text fontSize="xs" color={t.muted} mt={2}>Counts students registered in this system (from their profiles), not official school enrollment.</Text>
+      <Text fontSize="xs" color={t.muted} mt={2}>{note}</Text>
     </Box>
   );
 }
@@ -105,35 +105,30 @@ export function CohortTable({ rows }: { rows: CohortRow[] }) {
 export function AppealsByReason({ rows, reasons }: { rows: AppealRow[]; reasons: string[] }) {
   const t = useTheme();
   const f = useFiltered(rows);
-  const tot = (r: AppealRow) => r.accepted + r.rejected;
+  const tot = (r: AppealRow) => r.count;
   const cell = (rk: string, reason: string) => f.kept.filter(r => f.rowOf(r) === rk && r.reason === reason).reduce((s, r) => s + tot(r), 0);
   const max = Math.max(1, ...f.rowKeys.flatMap(rk => reasons.map(r => cell(rk, r))));
   const perReason = reasons.map(reason => {
     const list = f.kept.filter(r => r.reason === reason);
-    return { reason, accepted: list.reduce((s, r) => s + r.accepted, 0), rejected: list.reduce((s, r) => s + r.rejected, 0) };
+    return { reason, count: list.reduce((s, r) => s + r.count, 0) };
   });
-  const biggest = Math.max(1, ...perReason.map(p => p.accepted + p.rejected));
+  const biggest = Math.max(1, ...perReason.map(p => p.count));
   return (
     <Box>
       <FilterBar programs={f.programs} years={f.years} program={f.program} year={f.year} onProgram={f.setProgram} onYear={f.setYear} />
-      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>No reviewed appeals for this selection yet.</Text> : (
+      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>No appeals for this selection yet.</Text> : (
         <VStack align="stretch" spacing={5}>
           <Box>
-            <Text fontSize="xs" fontWeight="700" color={t.muted} mb={2}>Were the reasons valid? (accepted vs rejected)</Text>
+            <Text fontSize="xs" fontWeight="700" color={t.muted} mb={2}>Why students appealed</Text>
             {perReason.map(p => (
               <Flex key={p.reason} align="center" gap={3} mb={2}>
                 <Text fontSize="sm" color={t.text} w={{ base: '120px', md: '210px' }} flexShrink={0} noOfLines={1} title={p.reason}>{p.reason}</Text>
                 <Flex flex="1" bg={t.tint} borderRadius="4px" h="14px" overflow="hidden">
-                  <Box bg="#16a34a" w={`${(p.accepted / biggest) * 100}%`} title={`Accepted: ${p.accepted}`} />
-                  <Box bg="#e11d48" w={`${(p.rejected / biggest) * 100}%`} title={`Rejected: ${p.rejected}`} />
+                  <Box bg="#2563eb" w={`${(p.count / biggest) * 100}%`} title={`${p.count} appeals`} />
                 </Flex>
-                <Text fontSize="xs" color={t.muted} w="96px" textAlign="right" flexShrink={0}>{p.accepted} ✓ · {p.rejected} ✗</Text>
+                <Text fontSize="xs" color={t.muted} w="60px" textAlign="right" flexShrink={0}>{p.count}</Text>
               </Flex>
             ))}
-            <HStack spacing={4} mt={1}>
-              <HStack spacing={1}><Box w="10px" h="10px" bg="#16a34a" borderRadius="2px" /><Text fontSize="xs" color={t.muted}>Accepted</Text></HStack>
-              <HStack spacing={1}><Box w="10px" h="10px" bg="#e11d48" borderRadius="2px" /><Text fontSize="xs" color={t.muted}>Rejected</Text></HStack>
-            </HStack>
           </Box>
           <Box overflowX="auto" borderWidth="1px" borderColor={t.border} borderRadius="md">
             <Table size="sm">
@@ -158,7 +153,7 @@ export function AppealsByReason({ rows, reasons }: { rows: AppealRow[]; reasons:
           </Box>
         </VStack>
       )}
-      <Text fontSize="xs" color={t.muted} mt={2}>Only appeals a faculty member has already reviewed are counted. An accepted appeal does not remove the miss from the totals.</Text>
+      <Text fontSize="xs" color={t.muted} mt={2}>Every student appeal is counted. Appeals are a record of the reason; they do not remove the miss from the totals.</Text>
     </Box>
   );
 }

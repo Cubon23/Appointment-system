@@ -33,13 +33,13 @@ export default function DeanAppeals() {
   return (
     <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
       <Heading size="md" color={textColor} mb={1}>Faculty Appeals</Heading>
-      <Text fontSize="sm" color={mutedText} mb={4}>Faculty ask the Dean to excuse a consultation they missed or cancelled. An accepted appeal marks it excused.</Text>
+      <Text fontSize="sm" color={mutedText} mb={4}>Reasons faculty gave for a consultation they missed or cancelled. Appeals are a record only; nothing needs to be approved.</Text>
       {loading ? <Text color={mutedText}>Loading...</Text> : appeals.length === 0 ? (
         <Text color={mutedText}>No appeals yet.</Text>
       ) : (
         <TableContainer>
           <Table size="sm" variant="simple">
-            <Thead><Tr><Th color={mutedText}>Faculty</Th><Th color={mutedText}>Consultation</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Appeal</Th></Tr></Thead>
+            <Thead><Tr><Th color={mutedText}>Faculty</Th><Th color={mutedText}>Consultation</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Reason</Th></Tr></Thead>
             <Tbody>
               {appeals.map(apt => (
                 <Tr key={apt._id}>

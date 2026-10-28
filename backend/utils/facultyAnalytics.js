@@ -36,6 +36,20 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
   const split = (byStudent, byFaculty) => ({ students: actorList(on(byStudent), studentKey, studentName), faculty: actorList(on(byFaculty), studentKey, studentName) });
   const isApproved = (st) => st === 'APPROVED' || st === 'COMPLETED' || isMissed(st) || isCancelledFaculty(st);
 
+  // Distinct students who asked this faculty member for a consultation, by program / year / section.
+  const seen = new Map();
+  counted.forEach((a) => {
+    const key = String(a.studentId || a.studentName);
+    if (!seen.has(key)) seen.set(key, parseCohort(a.studentSection));
+  });
+  const cohortMap = new Map();
+  seen.forEach((c) => {
+    const k = [c.program, c.year, c.section].join('|');
+    const row = cohortMap.get(k) || { ...c, count: 0 };
+    row.count += 1;
+    cohortMap.set(k, row);
+  });
+
   return {
     kpis: {
       requests: windowCounts(appointments, todayIso, isCounted),
@@ -76,6 +90,7 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
     },
     students: {
       uniqueStudents: new Set(counted.map((a) => String(a.studentId || a.studentName))).size,
+      cohorts: [...cohortMap.values()],
       byProgram: tally((x) => x.program, (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))),
       byYear: tally((x) => (x.year ? `Year ${x.year}` : 'Unspecified'), (a, b) => String(a[0]).localeCompare(String(b[0]))),
       purposes: collapsePurposes(purposeRows(appointments)),

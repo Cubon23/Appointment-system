@@ -29,25 +29,28 @@ test('account health: users per role and incomplete profiles', () => {
   assert.strictEqual(st.complete, 2);
   assert.deepStrictEqual(st.incompleteList, [{ name: 'Ben', email: 'b@x' }]);
 });
-test('appeal table only counts decided student appeals; unknown reasons become Other', () => {
+test('appeal table counts every student appeal (any status); unknown reasons become Other', () => {
   const rows = buildAppealRows([
-    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'ACCEPTED', reason: 'Family Emergency' } }),
-    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'REJECTED', reason: 'Overslept' } }),
+    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'SUBMITTED', reason: 'Family Emergency' } }),
+    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'SUBMITTED', reason: 'Overslept' } }),
     apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'PENDING', reason: 'Family Emergency' } }),
-    apt({ status: 'MISSED (FACULTY)', appeal: { by: 'FACULTY', status: 'ACCEPTED', reason: 'Official University Duties' } }),
+    apt({ status: 'MISSED (FACULTY)', appeal: { by: 'FACULTY', status: 'SUBMITTED', reason: 'Official University Duties' } }),
   ]);
   assert.strictEqual(rows.length, 2);
-  assert.strictEqual(rows.find(r => r.reason === 'Other').rejected, 1);
+  assert.strictEqual(rows.find(r => r.reason === 'Other').count, 1);
+  assert.strictEqual(rows.find(r => r.reason === 'Family Emergency').count, 2);
 });
-test('appeal summary rates', () => {
+test('appeal summary: rate, totals, faculty appeals', () => {
   const s = buildAppealSummary([
-    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'ACCEPTED', reason: 'x' } }),
+    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'SUBMITTED', reason: 'x' } }),
     apt({ status: 'MISSED (STUDENT)' }),
-    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'REJECTED', reason: 'x' } }),
+    apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'SUBMITTED', reason: 'x' } }),
     apt({ status: 'MISSED (STUDENT)' }),
+    apt({ status: 'MISSED (FACULTY)', appeal: { by: 'FACULTY', status: 'SUBMITTED', reason: 'y' } }),
   ]);
   assert.strictEqual(s.appealRate, 50);
-  assert.strictEqual(s.acceptanceRate, 50);
+  assert.strictEqual(s.total, 2);
+  assert.strictEqual(s.faculty.made, 1);
 });
 test('shared report: kpis, drilldown split, no pending, admin-only health', () => {
   const appointments = [

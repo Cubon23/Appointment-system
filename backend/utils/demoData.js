@@ -51,8 +51,7 @@ function buildDemoData({ today, seed = 2026, facultyCount = 3, weeks = 8 }) {
       const status = roll < 0.55 ? 'COMPLETED' : roll < 0.72 ? 'MISSED (STUDENT)' : roll < 0.78 ? 'MISSED (FACULTY)' : roll < 0.86 ? 'CANCELLED BY STUDENT' : roll < 0.92 ? 'CANCELLED BY FACULTY' : 'REJECTED';
       const apt = { facultyKey: f.key, studentKey: s.key, date: day, time: `${pad(hour, 2)}:00`, duration: 60, reason: pick(rng, PURPOSES), status };
       if (status === 'MISSED (STUDENT)' && rng() < 0.6) {
-        const decided = rng() < 0.75;
-        apt.appeal = { by: 'STUDENT', reason: rng() < 0.12 ? 'Some other personal matter' : pick(rng, STUDENT_APPEAL_REASONS), status: decided ? (rng() < 0.6 ? 'ACCEPTED' : 'REJECTED') : 'PENDING' };
+        apt.appeal = { by: 'STUDENT', reason: rng() < 0.12 ? 'Some other personal matter' : pick(rng, STUDENT_APPEAL_REASONS), status: 'SUBMITTED' };
       }
       appointments.push(apt);
     }

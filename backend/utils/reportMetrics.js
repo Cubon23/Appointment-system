@@ -115,17 +115,17 @@ function buildHeatmap(appointments, hoursRows = []) {
   return { days: DAY_LABELS, hours, cells, max: Math.max(0, ...cells.flat()) };
 }
 
-// Students' appeals that a faculty member has decided, grouped for the filterable table.
+// Students' appeals (record only, no review), grouped for the filterable table.
 function buildAppealRows(appointments) {
   const m = new Map();
   appointments.forEach((a) => {
     const ap = a.appeal;
-    if (!ap || ap.by !== 'STUDENT' || (ap.status !== 'ACCEPTED' && ap.status !== 'REJECTED')) return;
+    if (!ap || ap.by !== 'STUDENT') return;
     const c = parseCohort(a.studentSection);
     const reason = STUDENT_APPEAL_REASONS.includes(ap.reason) ? ap.reason : 'Other';
     const key = [c.program, c.year, c.section, reason].join('|');
-    const row = m.get(key) || { program: c.program, year: c.year, section: c.section, reason, accepted: 0, rejected: 0 };
-    if (ap.status === 'ACCEPTED') row.accepted += 1; else row.rejected += 1;
+    const row = m.get(key) || { program: c.program, year: c.year, section: c.section, reason, count: 0 };
+    row.count += 1;
     m.set(key, row);
   });
   return [...m.values()];
@@ -134,21 +134,12 @@ function buildAppealRows(appointments) {
 function buildAppealSummary(appointments) {
   const studentAppeals = appointments.filter((a) => a.appeal && a.appeal.by === 'STUDENT');
   const facultyAppeals = appointments.filter((a) => a.appeal && a.appeal.by === 'FACULTY');
-  const count = (list, status) => list.filter((a) => a.appeal.status === status).length;
   const missedStudent = appointments.filter((a) => isMissedStudent(a.status));
-  const accepted = count(studentAppeals, 'ACCEPTED');
-  const rejected = count(studentAppeals, 'REJECTED');
   const appealedMisses = missedStudent.filter((a) => a.appeal && a.appeal.by === 'STUDENT').length;
   return {
     appealRate: pct(appealedMisses, missedStudent.length),
-    accepted,
-    rejected,
-    acceptanceRate: pct(accepted, accepted + rejected),
-    faculty: {
-      made: facultyAppeals.length,
-      accepted: count(facultyAppeals, 'ACCEPTED'),
-      rejected: count(facultyAppeals, 'REJECTED'),
-    },
+    total: studentAppeals.length,
+    faculty: { made: facultyAppeals.length },
   };
 }
 

@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Heading, SimpleGrid, Spinner, Text, VStack, useDisclosure } from '@chakra-ui/react';
+import { Box, Heading, SimpleGrid, Spinner, Text, VStack, useDisclosure } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
-import SimpleBarChart from './SimpleBarChart';
-import { ChartCard, HBarChart, KpiTile, StackedBar } from './AnalyticsCharts';
+import { ChartCard, HBarChart, KpiTile, PieChart } from './AnalyticsCharts';
 import type { HeatmapData, LV } from './AnalyticsCharts';
-import { AppealsByReason, DrilldownDrawer } from './AnalyticsTables';
-import type { AppealRow, Drilldown } from './AnalyticsTables';
+import { AppealsByReason, CohortTable, DrilldownDrawer } from './AnalyticsTables';
+import type { AppealRow, CohortRow, Drilldown } from './AnalyticsTables';
 import { useColorModeValue } from '@chakra-ui/react';
 
 interface Window { total: number; last4: number; prev4: number }
@@ -19,8 +18,8 @@ interface Data {
   weekly: LV[];
   monthly: LV[];
   heatmap: HeatmapData;
-  appeals: { summary: { appealRate: number | null; accepted: number; rejected: number; acceptanceRate: number | null; faculty: { made: number; accepted: number; rejected: number } }; rows: AppealRow[]; reasons: string[] };
-  students: { uniqueStudents: number; byProgram: LV[]; byYear: LV[]; purposes: { total: number; items: { label: string; count: number; percent: number }[] } };
+  appeals: { summary: { appealRate: number | null; total: number; faculty: { made: number } }; rows: AppealRow[]; reasons: string[] };
+  students: { uniqueStudents: number; cohorts: CohortRow[]; purposes: { total: number; items: { label: string; count: number; percent: number }[] } };
 }
 
 const trend = (w: Window) => `last 4 weeks: ${w.last4} (before that: ${w.prev4})`;
@@ -64,34 +63,33 @@ export default function FacultyAnalytics() {
           onClick={() => open('Approved requests', data.drilldown.approved)} />
       </SimpleGrid>
 
-      <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-        <ChartCard title="What happened to requests">
-          <StackedBar segments={[
+      <SimpleGrid columns={{ base: 1, lg: 3 }} spacing={4}>
+        <ChartCard title="What happened to requests" hint="Finished and cancelled requests.">
+          <PieChart segments={[
             { label: 'Completed', value: o.completed, color: '#16a34a' },
-            { label: 'Upcoming', value: o.upcoming, color: '#2563eb' },
-            { label: 'Declined', value: o.declined, color: '#dc2626' },
-            { label: 'No-show (student)', value: o.studentNoShows, color: '#f08a3c' },
+            { label: 'Missed by students', value: o.studentNoShows, color: '#f08a3c' },
+            { label: 'Cancelled by students', value: o.cancelledByStudent, color: '#94a3b8' },
             { label: 'Missed by me', value: o.missedByFaculty, color: '#e11d48' },
-            { label: 'Cancelled by student', value: o.cancelledByStudent, color: '#94a3b8' },
             { label: 'Cancelled by me', value: o.cancelledByFaculty, color: '#64748b' },
           ]} />
         </ChartCard>
-        <ChartCard title="Why students come" hint={`${s.purposes.total} requests, top reasons.`}>
-          <HBarChart color="#0891b2" items={s.purposes.items.map(p => ({ label: p.label, value: p.count, note: `${p.percent}%` }))} emptyText="No requests yet." />
-        </ChartCard>
+        <Box gridColumn={{ lg: 'span 2' }}>
+          <ChartCard title="Why students come" hint={`${s.purposes.total} requests, top reasons.`}>
+            <HBarChart color="#0891b2" items={s.purposes.items.map(p => ({ label: p.label, value: p.count, note: `${p.percent}%` }))} emptyText="No requests yet." />
+          </ChartCard>
+        </Box>
       </SimpleGrid>
 
-      <ChartCard title="Appeals from my students, by reason" hint="Appeals you have reviewed. Accepted appeals do not remove a no-show from your totals.">
+      <ChartCard title="Appeals from my students, by reason" hint="Reasons your students gave. Appeals do not remove a no-show from your totals.">
         <AppealsByReason rows={appeals.rows} reasons={appeals.reasons} />
         <Text fontSize="xs" color={muted} mt={2}>
-          Appeal rate {pctText(appeals.summary.appealRate)} · acceptance rate {pctText(appeals.summary.acceptanceRate)} · my own appeals to the Dean: {appeals.summary.faculty.made}
+          Appeal rate {pctText(appeals.summary.appealRate)} · student appeals: {appeals.summary.total} · my own appeals to the Dean: {appeals.summary.faculty.made}
         </Text>
       </ChartCard>
 
-      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
-        <ChartCard title="Students by program">{s.byProgram.length ? <SimpleBarChart data={s.byProgram} color="#0891b2" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
-        <ChartCard title="Students by year level">{s.byYear.length ? <SimpleBarChart data={s.byYear} color="#059669" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
-      </SimpleGrid>
+      <ChartCard title="Students by year level and program" hint="Different students who asked you for a consultation.">
+        <CohortTable rows={s.cohorts} emptyText="No students yet." note="Counts each student once, even if they requested several times. Pending requests are not counted." />
+      </ChartCard>
       <DrilldownDrawer isOpen={drawer.isOpen} onClose={drawer.onClose} title={panel?.title || ''} data={panel?.data || null} studentLabel={panel?.split?.[0] || "Students"} facultyLabel={panel?.split?.[1]} studentsOnly={!panel?.split} />
     </VStack>
   );
