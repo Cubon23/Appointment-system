@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Heading, SimpleGrid, Spinner, Text, VStack } from '@chakra-ui/react';
+import { Heading, SimpleGrid, Spinner, Text, VStack, useDisclosure } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
 import SimpleBarChart from './SimpleBarChart';
 import { ChartCard, HBarChart, Heatmap, KpiTile, LineChart, StackedBar } from './AnalyticsCharts';
 import type { HeatmapData, LV } from './AnalyticsCharts';
-import { AppealsByReason } from './AnalyticsTables';
-import type { AppealRow } from './AnalyticsTables';
+import { AppealsByReason, DrilldownDrawer } from './AnalyticsTables';
+import type { AppealRow, Drilldown } from './AnalyticsTables';
 import { useColorModeValue } from '@chakra-ui/react';
 
+interface Window { total: number; last4: number; prev4: number }
 interface Data {
+  kpis: { requests: Window; completed: Window; missed: Window & { student: number; faculty: number }; cancelled: { student: number; faculty: number }; completionRate: number | null; missedRate: number | null };
+  drilldown: { requests: Drilldown; completed: Drilldown; missed: Drilldown; cancelled: Drilldown };
   outcomes: {
     requests: number; completed: number; upcoming: number; declined: number; studentNoShows: number; missedByFaculty: number;
     cancelledByStudent: number; cancelledByFaculty: number; completionRate: number | null; missedRate: number | null; approvalRate: number | null;
@@ -20,12 +23,15 @@ interface Data {
   students: { uniqueStudents: number; byProgram: LV[]; byYear: LV[]; purposes: { total: number; items: { label: string; count: number; percent: number }[] } };
 }
 
+const trend = (w: Window) => `last 4 weeks: ${w.last4} (before that: ${w.prev4})`;
 const pctText = (n: number | null) => (n === null ? '—' : `${n}%`);
 
 // A faculty member's own analytics. The server only ever returns the logged-in faculty's data.
 export default function FacultyAnalytics() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState('');
+  const [panel, setPanel] = useState<{ title: string; data: Drilldown } | null>(null);
+  const drawer = useDisclosure();
   const text = useColorModeValue('#0f2240', '#e8f0fe');
   const muted = useColorModeValue('#6b7fa0', '#7a93b0');
 
@@ -38,17 +44,22 @@ export default function FacultyAnalytics() {
 
   if (error) return <Text color="red.500">{error}</Text>;
   if (!data) return <Spinner />;
-  const { outcomes: o, students: s, appeals } = data;
+  const { outcomes: o, students: s, appeals, kpis: k } = data;
+  const open = (title: string, d: Drilldown) => { setPanel({ title, data: d }); drawer.onOpen(); };
 
   return (
     <VStack align="stretch" spacing={6}>
       <Heading size="md" color={text}>My Analytics</Heading>
 
-      <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
-        <KpiTile label="Requests" value={o.requests} sub={`${s.uniqueStudents} different students`} accent="#2563eb" hint="Requests you reviewed or that happened. Requests still waiting for your answer are not counted." />
-        <KpiTile label="Completed" value={o.completed} sub={`completion rate ${pctText(o.completionRate)}`} accent="#16a34a" hint="Completion rate = completed ÷ (completed + missed)." />
-        <KpiTile label="Student no-shows" value={o.studentNoShows} sub={`missed rate ${pctText(o.missedRate)}`} accent="#f08a3c" hint="Appeals never reduce this number." />
-        <KpiTile label="Approval rate" value={pctText(o.approvalRate)} sub={`${o.declined} declined`} accent="#8b5cf6" hint="Approved requests ÷ (approved + declined)." />
+      <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={4}>
+        <KpiTile label="Requests" value={k.requests.total} sub={trend(k.requests)} accent="#2563eb" hint="Requests you reviewed or that happened. Requests still waiting for your answer are not counted."
+          onClick={() => open('Requests', data.drilldown.requests)} />
+        <KpiTile label="Completed" value={k.completed.total} sub={trend(k.completed)} accent="#16a34a" onClick={() => open('Completed consultations', data.drilldown.completed)} />
+        <KpiTile label="Missed" value={k.missed.total} sub={`${k.missed.student} by students · ${k.missed.faculty} by faculty · ${pctText(k.missedRate)} of finished`} accent="#f08a3c"
+          hint="Missed rate = missed ÷ (completed + missed). Appeals do not reduce this number." onClick={() => open('Missed consultations', data.drilldown.missed)} />
+        <KpiTile label="Cancelled" value={k.cancelled.student + k.cancelled.faculty} sub={`${k.cancelled.student} by students · ${k.cancelled.faculty} by faculty`} accent="#64748b"
+          onClick={() => open('Cancelled consultations', data.drilldown.cancelled)} />
+        <KpiTile label="Completion rate" value={pctText(k.completionRate)} sub="completed ÷ (completed + missed)" accent="#8b5cf6" hint="Of the consultations that were supposed to happen, how many were completed." />
       </SimpleGrid>
 
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
@@ -61,7 +72,7 @@ export default function FacultyAnalytics() {
       </SimpleGrid>
 
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-        <ChartCard title="What happened to requests">
+        <ChartCard title="What happened to requests" hint={`Approval rate ${pctText(o.approvalRate)} (${o.declined} declined) · ${s.uniqueStudents} different students`}>
           <StackedBar segments={[
             { label: 'Completed', value: o.completed, color: '#16a34a' },
             { label: 'Upcoming', value: o.upcoming, color: '#2563eb' },
@@ -88,6 +99,7 @@ export default function FacultyAnalytics() {
         <ChartCard title="Students by program">{s.byProgram.length ? <SimpleBarChart data={s.byProgram} color="#0891b2" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
         <ChartCard title="Students by year level">{s.byYear.length ? <SimpleBarChart data={s.byYear} color="#059669" height={140} /> : <Text fontSize="sm" color={muted}>No requests yet.</Text>}</ChartCard>
       </SimpleGrid>
+      <DrilldownDrawer isOpen={drawer.isOpen} onClose={drawer.onClose} title={panel?.title || ''} data={panel?.data || null} studentLabel="Students" studentsOnly />
     </VStack>
   );
 }

@@ -4,7 +4,8 @@
 // "use" is not reported (faculty are not required to use all their hours).
 const {
   outcomeCounts, buildHeatmap, buildAppealRows, buildAppealSummary, purposeRows, monthlySeries,
-  weeklySeries, STUDENT_APPEAL_REASONS, parseCohort,
+  weeklySeries, STUDENT_APPEAL_REASONS, parseCohort, windowCounts, actorList,
+  isCounted, isMissed, isMissedStudent, isMissedFaculty, isCancelledStudent, isCancelledFaculty, studentKey, studentName,
 } = require('./reportMetrics');
 const { collapsePurposes } = require('./analyticsHelpers');
 
@@ -28,7 +29,25 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
     return [...m.entries()].sort(order).map(([label, value]) => ({ label, value }));
   };
 
+  // Same tile numbers as the shared report: totals, last 4 weeks vs the 4 before, and who is behind them.
+  const on = (pred) => counted.filter((a) => pred(a.status));
+  const who = (rows) => ({ students: actorList(rows, studentKey, studentName), faculty: [] });
+
   return {
+    kpis: {
+      requests: windowCounts(appointments, todayIso, isCounted),
+      completed: windowCounts(appointments, todayIso, (a) => a.status === 'COMPLETED'),
+      missed: { ...windowCounts(appointments, todayIso, (a) => isMissed(a.status)), student: c.missedStudent, faculty: c.missedFaculty },
+      cancelled: { student: c.cancelledStudent, faculty: c.cancelledFaculty },
+      completionRate: c.completionRate,
+      missedRate: c.missedRate,
+    },
+    drilldown: {
+      requests: who(counted),
+      completed: who(on((s) => s === 'COMPLETED')),
+      missed: who(on(isMissed)),
+      cancelled: who(on((s) => isCancelledStudent(s) || isCancelledFaculty(s))),
+    },
     outcomes: {
       requests: c.requests,
       completed: c.completed,

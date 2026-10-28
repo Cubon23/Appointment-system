@@ -164,8 +164,8 @@ export function AppealsByReason({ rows, reasons }: { rows: AppealRow[]; reasons:
 }
 
 // Side panel opened from a tile: who is behind the number, split into students and faculty.
-export function DrilldownDrawer({ isOpen, onClose, title, data, studentLabel = 'Students', facultyLabel = 'Faculty' }: {
-  isOpen: boolean; onClose: () => void; title: string; data: Drilldown | null; studentLabel?: string; facultyLabel?: string;
+export function DrilldownDrawer({ isOpen, onClose, title, data, studentLabel = 'Students', facultyLabel = 'Faculty', studentsOnly = false }: {
+  isOpen: boolean; onClose: () => void; title: string; data: Drilldown | null; studentLabel?: string; facultyLabel?: string; studentsOnly?: boolean;
 }) {
   const t = useTheme();
   const list = (items: ActorCount[]) => items.length === 0 ? <Text fontSize="sm" color={t.muted}>Nobody yet.</Text> : (
@@ -186,7 +186,13 @@ export function DrilldownDrawer({ isOpen, onClose, title, data, studentLabel = '
         <DrawerCloseButton />
         <DrawerHeader color={t.text}>{title}</DrawerHeader>
         <DrawerBody>
-          {data && (
+          {data && studentsOnly && (
+            <>
+              <Text fontSize="xs" color={t.muted} mb={2}>{studentLabel}: {sum(data.students)}</Text>
+              {list(data.students)}
+            </>
+          )}
+          {data && !studentsOnly && (
             <Tabs isFitted size="sm" colorScheme="blue">
               <TabList>
                 <Tab>{studentLabel} ({sum(data.students)})</Tab>
