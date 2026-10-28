@@ -9,7 +9,7 @@ import {
   HStack, InputGroup, InputRightAddon,
   InputRightElement,
   IconButton,
-  Container,
+  Container, Tabs, TabList, Tab,
   SimpleGrid,
   Icon,
   Stack,
@@ -168,6 +168,8 @@ export default function LandingPage() {
   const [loginPassword, setLoginPassword] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [showLoginPw, setShowLoginPw] = useState(false);
+  // Which tab of the login box: students, or faculty & staff (Faculty, Dean, Admin). The server double-checks.
+  const [audience, setAudience] = useState<'STUDENT' | 'STAFF'>('STUDENT');
 
   // Forgot Password modal state
   const { isOpen: isForgotOpen, onOpen: onForgotOpen, onClose: onForgotClose } = useDisclosure();
@@ -213,7 +215,7 @@ export default function LandingPage() {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential })
+        body: JSON.stringify({ credential, audience })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
@@ -233,7 +235,7 @@ export default function LandingPage() {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/api/faculty/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: fullLoginEmail, password: loginPassword })
+        body: JSON.stringify({ email: fullLoginEmail, password: loginPassword, audience })
       });
 
       const data = await response.json();
@@ -290,12 +292,23 @@ export default function LandingPage() {
   // The original login/register form, unchanged, now shown inside the modal
   const authTabs = (
     <Box>
+      <Tabs isFitted index={audience === 'STUDENT' ? 0 : 1} onChange={(i) => setAudience(i === 0 ? 'STUDENT' : 'STAFF')} colorScheme="blue">
+        <TabList>
+          <Tab fontWeight="600">Student</Tab>
+          <Tab fontWeight="600">Faculty &amp; Staff</Tab>
+        </TabList>
+      </Tabs>
               {/* LOGIN PANEL */}
               <Box p={8}>
+                <Text fontSize="sm" color="gray.600" mb={4}>
+                  {audience === 'STUDENT'
+                    ? 'New here? Signing in with your school Google account creates your student account. You will then complete your profile with your School ID.'
+                    : 'Faculty, Dean and Admin accounts are added by the administrator, so there is no sign-up. Sign in with your school Google account.'}
+                </Text>
                 <form onSubmit={handleLogin}>
                   <VStack spacing={5}>
                     <FormControl isRequired>
-                      <FormLabel>Gmail Address</FormLabel>
+                      <FormLabel>School email</FormLabel>
                       <InputGroup>
                         <Input
                           placeholder="e.g. jdelacruz"
@@ -335,7 +348,7 @@ export default function LandingPage() {
                 </Flex>
                 <VStack spacing={2}>
                   <GoogleSignInButton onCredential={handleGoogleCredential} />
-                  <Text fontSize="xs" color="gray.500">Students and faculty: use your @antiquespride.edu.ph account</Text>
+                  <Text fontSize="xs" color="gray.500">Use your @antiquespride.edu.ph account</Text>
                 </VStack>
               </Box>
     </Box>
@@ -619,7 +632,7 @@ export default function LandingPage() {
             </Text>
             <form onSubmit={handleForgotPassword}>
               <FormControl isRequired>
-                <FormLabel>Gmail Address</FormLabel>
+                <FormLabel>School email</FormLabel>
                 <InputGroup>
                   <Input
                     placeholder="e.g. jdelacruz"
