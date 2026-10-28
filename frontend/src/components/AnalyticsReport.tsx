@@ -28,7 +28,7 @@ interface ReportData {
   facultyOutcomes: { facultyId: string; name: string; programPosition: string; requests: number; completed: number; declined: number; cancelledByFaculty: number; missedByFaculty: number; studentNoShows: number }[];
   studentOutcomes: { studentKey: string; name: string; section: string; completed: number; declined: number; cancelledByStudent: number; noShows: number }[];
   appeals: {
-    summary: { appealRate: number | null; accepted: number; rejected: number; acceptanceRate: number | null; faculty: { made: number; accepted: number; rejected: number } };
+    summary: { appealRate: number | null; total: number; faculty: { made: number } };
     rows: AppealRow[]; reasons: string[];
   };
   drilldown: { requests: Drilldown; completed: Drilldown; missed: Drilldown; cancelled: Drilldown };
@@ -172,9 +172,8 @@ export default function AnalyticsReport() {
     <VStack align="stretch" spacing={6}>
       <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={4}>
         <KpiTile label="Appeal rate" value={pctText(a.appealRate)} sub="missed consultations that got an appeal" accent="#f08a3c" hint="Appeals on 'Missed (student)' ÷ all 'Missed (student)'." />
-        <KpiTile label="Appeals accepted" value={a.accepted} sub={`acceptance rate ${pctText(a.acceptanceRate)}`} accent="#16a34a" />
-        <KpiTile label="Appeals rejected" value={a.rejected} accent="#e11d48" />
-        <KpiTile label="Faculty appeals to Dean" value={a.faculty.made} sub={`${a.faculty.accepted} accepted · ${a.faculty.rejected} rejected`} accent="#8b5cf6" />
+        <KpiTile label="Student appeals" value={a.total} sub="reasons given for a missed or cancelled consultation" accent="#16a34a" />
+        <KpiTile label="Faculty appeals" value={a.faculty.made} sub="reasons faculty gave to the Dean" accent="#8b5cf6" />
         <KpiTile label="Missed by students" value={k.missed.student} sub="appeals never reduce this" accent="#64748b" />
       </SimpleGrid>
 

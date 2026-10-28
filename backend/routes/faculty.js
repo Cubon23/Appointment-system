@@ -816,7 +816,7 @@ router.post('/appointment/:id/appeal', requireAuth(['STUDENT', 'FACULTY']), asyn
     const reason = String(req.body.reason || '').trim().slice(0, 300);
     if (!reason) return res.status(400).json({ error: 'Please select or enter a reason.' });
 
-    apt.appeal = { by: role, reason, status: 'PENDING', submittedAt: new Date() };
+    apt.appeal = { by: role, reason, status: 'SUBMITTED', submittedAt: new Date() }; // record only: no accept/reject review
     await apt.save();
 
     const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
@@ -839,38 +839,6 @@ router.get('/appeals', requireAuth(['DEAN']), async (req, res) => {
     res.json(list);
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching appeals.' });
-  }
-});
-
-// Review an appeal: the faculty member for student appeals, the Dean for faculty appeals.
-router.patch('/appointment/:id/appeal', requireAuth(['FACULTY', 'DEAN']), async (req, res) => {
-  try {
-    const apt = await Appointment.findById(req.params.id);
-    if (!apt || !apt.appeal || apt.appeal.status !== 'PENDING') return res.status(404).json({ error: 'No pending appeal found.' });
-    const allowed = req.user.role === 'DEAN'
-      ? apt.appeal.by === 'FACULTY'
-      : apt.appeal.by === 'STUDENT' && String(apt.facultyId) === String(req.user.userId);
-    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
-    const decision = req.body.decision;
-    if (!['ACCEPTED', 'REJECTED'].includes(decision)) return res.status(400).json({ error: 'Choose accept or decline.' });
-
-    apt.appeal.status = decision;
-    apt.appeal.reviewedBy = req.user.userId;
-    apt.appeal.reviewedAt = new Date();
-    apt.appeal.reviewNote = String(req.body.note || '').trim().slice(0, 300);
-    await apt.save();
-
-    const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
-    const verdict = decision === 'ACCEPTED' ? 'accepted (excused)' : 'declined';
-    const appellant = apt.appeal.by === 'STUDENT' ? await resolveStudentId(apt) : apt.facultyId;
-    await notify(appellant, {
-      type: 'APPEAL',
-      title: `Appeal ${decision === 'ACCEPTED' ? 'accepted' : 'declined'}`,
-      message: `Your appeal for the consultation on ${when} was ${verdict}.${apt.appeal.reviewNote ? ` Note: ${apt.appeal.reviewNote}` : ''}`,
-    });
-    res.json({ message: `Appeal ${verdict}.`, appointment: apt });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error reviewing the appeal.' });
   }
 });
 

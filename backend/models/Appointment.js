@@ -16,11 +16,11 @@ const AppointmentSchema = new mongoose.Schema({
   studentReminderSent: { type: Boolean, default: false }, // ...and to the student (in-app + email)?
 
   // An appeal after a missed or cancelled consultation: students appeal to the faculty member,
-  // faculty appeal to the Dean. An ACCEPTED appeal means the absence is excused.
+  // faculty appeal to the Dean. Appeals are a record of the reason only (no review). Older appeals may still carry PENDING/ACCEPTED/REJECTED.
   appeal: {
     by:          { type: String, enum: ['STUDENT', 'FACULTY'] },
     reason:      { type: String },
-    status:      { type: String, enum: ['PENDING', 'ACCEPTED', 'REJECTED'] },
+    status:      { type: String, enum: ['SUBMITTED', 'PENDING', 'ACCEPTED', 'REJECTED'] },
     submittedAt: { type: Date },
     reviewedBy:  { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     reviewedAt:  { type: Date },

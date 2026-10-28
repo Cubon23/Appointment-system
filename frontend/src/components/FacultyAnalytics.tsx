@@ -19,7 +19,7 @@ interface Data {
   weekly: LV[];
   monthly: LV[];
   heatmap: HeatmapData;
-  appeals: { summary: { appealRate: number | null; accepted: number; rejected: number; acceptanceRate: number | null; faculty: { made: number; accepted: number; rejected: number } }; rows: AppealRow[]; reasons: string[] };
+  appeals: { summary: { appealRate: number | null; total: number; faculty: { made: number } }; rows: AppealRow[]; reasons: string[] };
   students: { uniqueStudents: number; byProgram: LV[]; byYear: LV[]; purposes: { total: number; items: { label: string; count: number; percent: number }[] } };
 }
 
@@ -81,10 +81,10 @@ export default function FacultyAnalytics() {
         </ChartCard>
       </SimpleGrid>
 
-      <ChartCard title="Appeals from my students, by reason" hint="Appeals you have reviewed. Accepted appeals do not remove a no-show from your totals.">
+      <ChartCard title="Appeals from my students, by reason" hint="Reasons your students gave. Appeals do not remove a no-show from your totals.">
         <AppealsByReason rows={appeals.rows} reasons={appeals.reasons} />
         <Text fontSize="xs" color={muted} mt={2}>
-          Appeal rate {pctText(appeals.summary.appealRate)} · acceptance rate {pctText(appeals.summary.acceptanceRate)} · my own appeals to the Dean: {appeals.summary.faculty.made}
+          Appeal rate {pctText(appeals.summary.appealRate)} · student appeals: {appeals.summary.total} · my own appeals to the Dean: {appeals.summary.faculty.made}
         </Text>
       </ChartCard>
 

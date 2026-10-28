@@ -18,7 +18,9 @@ test('appointments cover past dates only, use known keys, and are repeatable', (
   assert.deepStrictEqual(buildDemoData({ today: '2026-10-28' }).appointments, data.appointments);
 });
 
-test('there are appeals in more than one state', () => {
-  const states = new Set(data.appointments.filter(a => a.appeal).map(a => a.appeal.status));
-  assert.ok(states.has('ACCEPTED') && states.has('REJECTED'));
+test('there are student appeals with several reasons, all record-only', () => {
+  const appeals = data.appointments.filter(a => a.appeal);
+  assert.ok(appeals.length > 3);
+  assert.ok(appeals.every(a => a.appeal.status === 'SUBMITTED'));
+  assert.ok(new Set(appeals.map(a => a.appeal.reason)).size > 1);
 });
