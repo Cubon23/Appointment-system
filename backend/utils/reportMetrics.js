@@ -310,6 +310,7 @@ function buildSharedReport({ appointments, users, hoursRows = [], todayIso, incl
 }
 
 module.exports = {
+  isCounted, isMissed, isMissedStudent, isMissedFaculty, isCancelledStudent, isCancelledFaculty, studentKey, studentName,
   STUDENT_APPEAL_REASONS, parseCohort, outcomeCounts, windowCounts, actorList, buildHeatmap,
   buildAppealRows, buildAppealSummary, buildCohortRows, purposeRows, weeklySeries, monthlySeries,
   buildFacultyOutcomeRows, buildStudentOutcomeRows, buildGender, buildAccountHealth, buildSharedReport,

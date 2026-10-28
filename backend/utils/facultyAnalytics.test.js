@@ -64,3 +64,30 @@ test('no data yields zeros and nulls, not NaN', () => {
   assert.deepStrictEqual(r.students.purposes, { total: 0, items: [] });
   assert.strictEqual(r.heatmap.max, 0);
 });
+
+test('faculty tiles match the shared report: windows, missed/cancelled split, student-only drilldown', () => {
+  const mk = (status, date, name) => ({ status, date, time: '09:00', studentName: name, studentId: name, studentSection: 'BS INFO 3A', reason: 'Advising' });
+  const out = buildFacultyAnalytics({
+    appointments: [mk('COMPLETED', '2026-10-20', 'Ana'), mk('COMPLETED', '2026-10-21', 'Ana'), mk('MISSED (STUDENT)', '2026-10-22', 'Ben'), mk('CANCELLED BY FACULTY', '2026-10-23', 'Cy'), mk('PENDING', '2026-10-24', 'Di')],
+    todayIso: '2026-10-28',
+  });
+  assert.strictEqual(out.kpis.requests.total, 4); // pending is not counted
+  assert.strictEqual(out.kpis.completed.last4, 2);
+  assert.strictEqual(out.kpis.missed.student, 1);
+  assert.strictEqual(out.kpis.cancelled.faculty, 1);
+  assert.deepStrictEqual(out.drilldown.completed.students, [{ name: 'Ana', count: 2 }]);
+  assert.deepStrictEqual(out.drilldown.completed.faculty, []);
+});
+
+test('approved tile and the missed/cancelled lists split by who caused them', () => {
+  const mk = (status, name) => ({ status, date: '2026-10-20', time: '09:00', studentName: name, studentId: name, studentSection: 'BS INFO 3A', reason: 'Advising' });
+  const out = buildFacultyAnalytics({
+    appointments: [mk('COMPLETED', 'Ana'), mk('MISSED (STUDENT)', 'Ben'), mk('MISSED (FACULTY)', 'Cy'), mk('CANCELLED BY STUDENT', 'Di'), mk('CANCELLED BY FACULTY', 'Eli'), mk('REJECTED', 'Fay')],
+    todayIso: '2026-10-28',
+  });
+  assert.strictEqual(out.kpis.approved.total, 4); // completed + both misses + cancelled by faculty
+  assert.strictEqual(out.kpis.approved.declined, 1);
+  assert.deepStrictEqual(out.drilldown.missed.students, [{ name: 'Ben', count: 1 }]);
+  assert.deepStrictEqual(out.drilldown.missed.faculty, [{ name: 'Cy', count: 1 }]);
+  assert.deepStrictEqual(out.drilldown.cancelled.faculty, [{ name: 'Eli', count: 1 }]);
+});

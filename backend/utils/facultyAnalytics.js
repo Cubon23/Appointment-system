@@ -4,7 +4,8 @@
 // "use" is not reported (faculty are not required to use all their hours).
 const {
   outcomeCounts, buildHeatmap, buildAppealRows, buildAppealSummary, purposeRows, monthlySeries,
-  weeklySeries, STUDENT_APPEAL_REASONS, parseCohort,
+  weeklySeries, STUDENT_APPEAL_REASONS, parseCohort, windowCounts, actorList,
+  isCounted, isMissed, isMissedStudent, isMissedFaculty, isCancelledStudent, isCancelledFaculty, studentKey, studentName,
 } = require('./reportMetrics');
 const { collapsePurposes } = require('./analyticsHelpers');
 
@@ -28,7 +29,30 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
     return [...m.entries()].sort(order).map(([label, value]) => ({ label, value }));
   };
 
+  // Same tile numbers as the shared report: totals, last 4 weeks vs the 4 before, and who is behind them.
+  const on = (pred) => counted.filter((a) => pred(a.status));
+  const who = (rows) => ({ students: actorList(rows, studentKey, studentName), faculty: [] });
+  // Two lists naming the student involved: caused by the student vs caused by the faculty member.
+  const split = (byStudent, byFaculty) => ({ students: actorList(on(byStudent), studentKey, studentName), faculty: actorList(on(byFaculty), studentKey, studentName) });
+  const isApproved = (st) => st === 'APPROVED' || st === 'COMPLETED' || isMissed(st) || isCancelledFaculty(st);
+
   return {
+    kpis: {
+      requests: windowCounts(appointments, todayIso, isCounted),
+      completed: windowCounts(appointments, todayIso, (a) => a.status === 'COMPLETED'),
+      missed: { ...windowCounts(appointments, todayIso, (a) => isMissed(a.status)), student: c.missedStudent, faculty: c.missedFaculty },
+      approved: { ...windowCounts(appointments, todayIso, (a) => isApproved(a.status)), declined: c.declined },
+      cancelled: { student: c.cancelledStudent, faculty: c.cancelledFaculty },
+      completionRate: c.completionRate,
+      missedRate: c.missedRate,
+    },
+    drilldown: {
+      requests: who(counted),
+      completed: who(on((s) => s === 'COMPLETED')),
+      approved: who(on(isApproved)),
+      missed: split(isMissedStudent, isMissedFaculty),
+      cancelled: split(isCancelledStudent, isCancelledFaculty),
+    },
     outcomes: {
       requests: c.requests,
       completed: c.completed,
