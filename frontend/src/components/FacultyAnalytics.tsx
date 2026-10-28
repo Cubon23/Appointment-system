@@ -51,7 +51,7 @@ export default function FacultyAnalytics() {
     <VStack align="stretch" spacing={6}>
       <Heading size="md" color={text}>My Analytics</Heading>
 
-      <SimpleGrid columns={{ base: 2, md: 3, lg: 5 }} spacing={4}>
+      <SimpleGrid columns={{ base: 2, md: 3 }} spacing={4}>
         <KpiTile label="Requests" value={k.requests.total} sub={trend(k.requests)} accent="#2563eb" hint="Requests you reviewed or that happened. Requests still waiting for your answer are not counted."
           onClick={() => open('Requests', data.drilldown.requests)} />
         <KpiTile label="Completed" value={k.completed.total} sub={trend(k.completed)} accent="#16a34a" onClick={() => open('Completed consultations', data.drilldown.completed)} />
@@ -60,6 +60,7 @@ export default function FacultyAnalytics() {
         <KpiTile label="Cancelled" value={k.cancelled.student + k.cancelled.faculty} sub={`${k.cancelled.student} by students · ${k.cancelled.faculty} by faculty`} accent="#64748b"
           onClick={() => open('Cancelled consultations', data.drilldown.cancelled)} />
         <KpiTile label="Completion rate" value={pctText(k.completionRate)} sub="completed ÷ (completed + missed)" accent="#8b5cf6" hint="Of the consultations that were supposed to happen, how many were completed." />
+        <KpiTile label="Approval rate" value={pctText(o.approvalRate)} sub={`${o.declined} declined · ${s.uniqueStudents} different students`} accent="#0891b2" hint="Approved requests ÷ (approved + declined)." />
       </SimpleGrid>
 
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
@@ -72,7 +73,7 @@ export default function FacultyAnalytics() {
       </SimpleGrid>
 
       <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={4}>
-        <ChartCard title="What happened to requests" hint={`Approval rate ${pctText(o.approvalRate)} (${o.declined} declined) · ${s.uniqueStudents} different students`}>
+        <ChartCard title="What happened to requests">
           <StackedBar segments={[
             { label: 'Completed', value: o.completed, color: '#16a34a' },
             { label: 'Upcoming', value: o.upcoming, color: '#2563eb' },
