@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  Badge, Button, HStack, Text, VStack, useToast, useColorModeValue,
+  Badge, Button, Text, VStack, useToast, useColorModeValue,
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalCloseButton, ModalBody, ModalFooter,
 } from '@chakra-ui/react';
 import { authFetch } from './authFetch';
@@ -12,9 +12,6 @@ const APPEALABLE: Record<string, string[]> = {
   FACULTY: ['MISSED (FACULTY)', 'CANCELLED BY FACULTY'],
 };
 
-const APPEAL_COLOR: Record<string, string> = { PENDING: 'yellow', ACCEPTED: 'green', REJECTED: 'red' };
-const APPEAL_LABEL: Record<string, string> = { PENDING: 'Appeal pending', ACCEPTED: 'Appeal accepted (excused)', REJECTED: 'Appeal declined' };
-
 interface Props {
   apt: any;
   role: 'STUDENT' | 'FACULTY' | 'DEAN';
@@ -24,7 +21,7 @@ interface Props {
 /**
  * Appeal button / status for one appointment row.
  *  - STUDENT and FACULTY can appeal their own missed or cancelled consultations (reason dropdown + "Other Reason").
- *  - FACULTY reviews student appeals on their consultations; DEAN reviews faculty appeals.
+ *  - Appeals are a record of the reason only. Nobody accepts or rejects them.
  */
 export default function AppealControls({ apt, role, onChanged }: Props) {
   const toast = useToast();
@@ -36,8 +33,6 @@ export default function AppealControls({ apt, role, onChanged }: Props) {
   const base = `${import.meta.env.VITE_API_URL}/api/faculty/appointment/${apt._id}/appeal`;
   const appeal = apt.appeal && apt.appeal.status ? apt.appeal : null;
   const canAppeal = !appeal && role !== 'DEAN' && APPEALABLE[role].includes(apt.status);
-  const canReview = !!appeal && appeal.status === 'PENDING' &&
-    ((role === 'FACULTY' && appeal.by === 'STUDENT') || (role === 'DEAN' && appeal.by === 'FACULTY'));
 
   const send = async (url: string, method: string, body: object, okTitle: string) => {
     setBusy(true);
@@ -60,18 +55,11 @@ export default function AppealControls({ apt, role, onChanged }: Props) {
     <VStack align="start" spacing={1} mt={1}>
       {appeal && (
         <>
-          <Badge colorScheme={APPEAL_COLOR[appeal.status]} textTransform="none">
-            {appeal.by === 'FACULTY' && role !== 'FACULTY' ? 'Faculty appeal' : appeal.by === 'STUDENT' && role !== 'STUDENT' ? 'Student appeal' : 'Your appeal'}: {APPEAL_LABEL[appeal.status]}
+          <Badge colorScheme="blue" textTransform="none">
+            {appeal.by === 'FACULTY' && role !== 'FACULTY' ? 'Faculty appeal' : appeal.by === 'STUDENT' && role !== 'STUDENT' ? 'Student appeal' : 'Your appeal'}: submitted
           </Badge>
           <Text fontSize="xs" color={mutedText}>Reason: {appeal.reason}</Text>
-          {appeal.reviewNote && <Text fontSize="xs" color={mutedText}>Note: {appeal.reviewNote}</Text>}
         </>
-      )}
-      {canReview && (
-        <HStack spacing={2}>
-          <Button size="xs" colorScheme="green" isLoading={busy} onClick={() => send(base, 'PATCH', { decision: 'ACCEPTED' }, 'Appeal accepted')}>Accept</Button>
-          <Button size="xs" colorScheme="red" variant="outline" isLoading={busy} onClick={() => send(base, 'PATCH', { decision: 'REJECTED' }, 'Appeal declined')}>Decline</Button>
-        </HStack>
       )}
       {canAppeal && (
         <Button size="xs" variant="outline" colorScheme="blue" onClick={() => { setReason(''); setOpen(true); }}>Appeal</Button>
@@ -85,8 +73,8 @@ export default function AppealControls({ apt, role, onChanged }: Props) {
           <ModalBody>
             <Text fontSize="sm" mb={3}>
               {role === 'STUDENT'
-                ? 'Your appeal goes to the professor, who can excuse the missed or cancelled consultation.'
-                : 'Your appeal goes to the Dean, who can excuse the missed or cancelled consultation.'}
+                ? 'Your appeal tells the professor why you missed or cancelled. It is a record of your reason; no approval is needed.'
+                : 'Your appeal tells the Dean why you missed or cancelled. It is a record of your reason; no approval is needed.'}
             </Text>
             <CancelReasonPicker key={apt._id} options={role === 'STUDENT' ? STUDENT_APPEAL_REASONS : FACULTY_APPEAL_REASONS} onChange={setReason} />
           </ModalBody>

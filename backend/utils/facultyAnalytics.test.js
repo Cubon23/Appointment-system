@@ -27,12 +27,12 @@ test('rates are null when nothing has happened yet', () => {
   assert.strictEqual(r.outcomes.completionRate, null);
   assert.strictEqual(r.outcomes.approvalRate, null);
 });
-test('an accepted appeal does not reduce the miss count', () => {
-  const missed = apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'ACCEPTED', reason: 'Family Emergency' } });
+test('an appeal does not reduce the miss count', () => {
+  const missed = apt({ status: 'MISSED (STUDENT)', appeal: { by: 'STUDENT', status: 'SUBMITTED', reason: 'Family Emergency' } });
   const r = buildFacultyAnalytics({ todayIso: today, appointments: [apt({}), missed] });
   assert.strictEqual(r.outcomes.studentNoShows, 1);
-  assert.strictEqual(r.appeals.summary.accepted, 1);
-  assert.deepStrictEqual(r.appeals.rows, [{ program: 'BS INFO', year: '4', section: 'D', reason: 'Family Emergency', accepted: 1, rejected: 0 }]);
+  assert.strictEqual(r.appeals.summary.total, 1);
+  assert.deepStrictEqual(r.appeals.rows, [{ program: 'BS INFO', year: '4', section: 'D', reason: 'Family Emergency', count: 1 }]);
 });
 test('heatmap window follows the consultation hours', () => {
   const r = buildFacultyAnalytics({
