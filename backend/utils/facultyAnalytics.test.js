@@ -78,3 +78,16 @@ test('faculty tiles match the shared report: windows, missed/cancelled split, st
   assert.deepStrictEqual(out.drilldown.completed.students, [{ name: 'Ana', count: 2 }]);
   assert.deepStrictEqual(out.drilldown.completed.faculty, []);
 });
+
+test('approved tile and the missed/cancelled lists split by who caused them', () => {
+  const mk = (status, name) => ({ status, date: '2026-10-20', time: '09:00', studentName: name, studentId: name, studentSection: 'BS INFO 3A', reason: 'Advising' });
+  const out = buildFacultyAnalytics({
+    appointments: [mk('COMPLETED', 'Ana'), mk('MISSED (STUDENT)', 'Ben'), mk('MISSED (FACULTY)', 'Cy'), mk('CANCELLED BY STUDENT', 'Di'), mk('CANCELLED BY FACULTY', 'Eli'), mk('REJECTED', 'Fay')],
+    todayIso: '2026-10-28',
+  });
+  assert.strictEqual(out.kpis.approved.total, 4); // completed + both misses + cancelled by faculty
+  assert.strictEqual(out.kpis.approved.declined, 1);
+  assert.deepStrictEqual(out.drilldown.missed.students, [{ name: 'Ben', count: 1 }]);
+  assert.deepStrictEqual(out.drilldown.missed.faculty, [{ name: 'Cy', count: 1 }]);
+  assert.deepStrictEqual(out.drilldown.cancelled.faculty, [{ name: 'Eli', count: 1 }]);
+});

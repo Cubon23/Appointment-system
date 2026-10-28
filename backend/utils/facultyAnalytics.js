@@ -32,12 +32,16 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
   // Same tile numbers as the shared report: totals, last 4 weeks vs the 4 before, and who is behind them.
   const on = (pred) => counted.filter((a) => pred(a.status));
   const who = (rows) => ({ students: actorList(rows, studentKey, studentName), faculty: [] });
+  // Two lists naming the student involved: caused by the student vs caused by the faculty member.
+  const split = (byStudent, byFaculty) => ({ students: actorList(on(byStudent), studentKey, studentName), faculty: actorList(on(byFaculty), studentKey, studentName) });
+  const isApproved = (st) => st === 'APPROVED' || st === 'COMPLETED' || isMissed(st) || isCancelledFaculty(st);
 
   return {
     kpis: {
       requests: windowCounts(appointments, todayIso, isCounted),
       completed: windowCounts(appointments, todayIso, (a) => a.status === 'COMPLETED'),
       missed: { ...windowCounts(appointments, todayIso, (a) => isMissed(a.status)), student: c.missedStudent, faculty: c.missedFaculty },
+      approved: { ...windowCounts(appointments, todayIso, (a) => isApproved(a.status)), declined: c.declined },
       cancelled: { student: c.cancelledStudent, faculty: c.cancelledFaculty },
       completionRate: c.completionRate,
       missedRate: c.missedRate,
@@ -45,8 +49,9 @@ function buildFacultyAnalytics({ appointments, official = [], added = [], todayI
     drilldown: {
       requests: who(counted),
       completed: who(on((s) => s === 'COMPLETED')),
-      missed: who(on(isMissed)),
-      cancelled: who(on((s) => isCancelledStudent(s) || isCancelledFaculty(s))),
+      approved: who(on(isApproved)),
+      missed: split(isMissedStudent, isMissedFaculty),
+      cancelled: split(isCancelledStudent, isCancelledFaculty),
     },
     outcomes: {
       requests: c.requests,
