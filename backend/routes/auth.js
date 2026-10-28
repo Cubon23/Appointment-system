@@ -5,7 +5,7 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const RosterEntry = require('../models/RosterEntry');
 const { requireAuth } = require('../middleware/auth');
-const { decideSignIn, parseList, isProfileComplete } = require('../utils/signInPolicy');
+const { decideSignIn, parseList, isProfileComplete, audienceMismatch } = require('../utils/signInPolicy');
 const { validateId } = require('../utils/idValidator');
 
 const router = express.Router();
@@ -34,7 +34,7 @@ router.post('/google', googleLimiter, async (req, res) => {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     if (!clientId) return res.status(500).json({ error: 'Google sign-in is not configured on the server.' });
-    const { credential } = req.body || {};
+    const { credential, audience } = req.body || {};
     if (!credential) return res.status(400).json({ error: 'Missing Google credential.' });
 
     let payload;
@@ -57,6 +57,10 @@ router.post('/google', googleLimiter, async (req, res) => {
       rosterRole: rosterEntry?.role || null
     });
     if (decision.action === 'DENY') return res.status(403).json({ error: decision.error });
+    // Wrong tab? Stop before any account is created or changed.
+    const resultingRole = decision.action === 'CREATE' ? decision.role : (decision.promoteTo || existingUser.role);
+    const wrongTab = audienceMismatch(audience, resultingRole, decision.action === 'CREATE');
+    if (wrongTab) return res.status(403).json({ error: wrongTab });
 
     let user = existingUser;
     if (decision.action === 'CREATE') {
