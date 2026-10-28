@@ -91,3 +91,11 @@ test('approved tile and the missed/cancelled lists split by who caused them', ()
   assert.deepStrictEqual(out.drilldown.missed.faculty, [{ name: 'Cy', count: 1 }]);
   assert.deepStrictEqual(out.drilldown.cancelled.faculty, [{ name: 'Eli', count: 1 }]);
 });
+
+test('students table: distinct students by program, year and section', () => {
+  const mk = (id, section, status = 'COMPLETED') => ({ status, date: '2026-10-20', time: '09:00', studentId: id, studentName: id, studentSection: section, reason: 'x' });
+  const r = buildFacultyAnalytics({ todayIso: '2026-10-28', appointments: [mk('a', 'BS INFO 3A'), mk('a', 'BS INFO 3A'), mk('b', 'BS INFO 3A'), mk('c', 'BLIS 1B'), mk('d', 'BLIS 1B', 'PENDING')] });
+  const find = (p, y) => r.students.cohorts.find(c => c.program === p && c.year === y);
+  assert.strictEqual(find('BS INFO', '3').count, 2); // a counted once, even with two requests
+  assert.strictEqual(find('BLIS', '1').count, 1);   // pending request is not counted
+});

@@ -57,7 +57,7 @@ function useFiltered<T extends { program: string; year: string; section: string 
 }
 
 // Registered students by program (columns) and year level or section (rows).
-export function CohortTable({ rows }: { rows: CohortRow[] }) {
+export function CohortTable({ rows, emptyText = 'No registered students for this selection.', note = 'Counts students registered in this system (from their profiles), not official school enrollment.' }: { rows: CohortRow[]; emptyText?: string; note?: string }) {
   const t = useTheme();
   const f = useFiltered(rows);
   const cols = f.program === 'All' ? f.programs : [f.program];
@@ -67,7 +67,7 @@ export function CohortTable({ rows }: { rows: CohortRow[] }) {
   return (
     <Box>
       <FilterBar programs={f.programs} years={f.years} program={f.program} year={f.year} onProgram={f.setProgram} onYear={f.setYear} />
-      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>No registered students for this selection.</Text> : (
+      {f.kept.length === 0 ? <Text fontSize="sm" color={t.muted}>{emptyText}</Text> : (
         <Box overflowX="auto" borderWidth="1px" borderColor={t.border} borderRadius="md">
           <Table size="sm">
             <Thead><Tr>
@@ -95,7 +95,7 @@ export function CohortTable({ rows }: { rows: CohortRow[] }) {
           </Table>
         </Box>
       )}
-      <Text fontSize="xs" color={t.muted} mt={2}>Counts students registered in this system (from their profiles), not official school enrollment.</Text>
+      <Text fontSize="xs" color={t.muted} mt={2}>{note}</Text>
     </Box>
   );
 }

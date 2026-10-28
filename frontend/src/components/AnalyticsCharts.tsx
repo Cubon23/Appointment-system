@@ -95,6 +95,41 @@ export function StackedBar({ segments }: { segments: { label: string; value: num
     </Box>
   );
 }
+// Pie chart with a legend that shows every count and percentage (so no slice has to be read by angle).
+export function PieChart({ segments, size = 170 }: { segments: { label: string; value: number; color: string }[]; size?: number }) {
+  const t = useTheme();
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  if (!total) return <Text fontSize="sm" color={t.muted}>No data yet.</Text>;
+  const shown = segments.filter(s => s.value > 0);
+  const r = size / 2 - 2, c = size / 2;
+  let angle = -Math.PI / 2;
+  const slices = shown.map((s) => {
+    const sweep = (s.value / total) * Math.PI * 2;
+    const a0 = angle, a1 = angle + sweep;
+    angle = a1;
+    const p = (a: number) => `${c + r * Math.cos(a)} ${c + r * Math.sin(a)}`;
+    return { ...s, d: `M ${c} ${c} L ${p(a0)} A ${r} ${r} 0 ${sweep > Math.PI ? 1 : 0} 1 ${p(a1)} Z` };
+  });
+  return (
+    <Flex direction="column" align="center" gap={4}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label="Outcome breakdown pie chart">
+        {shown.length === 1
+          ? <circle cx={c} cy={c} r={r} fill={shown[0].color}><title>{`${shown[0].label}: ${shown[0].value}`}</title></circle>
+          : slices.map(s => <path key={s.label} d={s.d} fill={s.color} stroke={t.surface} strokeWidth="2"><title>{`${s.label}: ${s.value}`}</title></path>)}
+      </svg>
+      <Box w="100%">
+        {shown.map(s => (
+          <HStack key={s.label} spacing={2} py="2px">
+            <Box w="10px" h="10px" borderRadius="2px" bg={s.color} flexShrink={0} />
+            <Text fontSize="xs" color={t.text} flex="1">{s.label}</Text>
+            <Text fontSize="xs" color={t.text}><b>{s.value}</b> <Text as="span" color={t.muted}>({Math.round((s.value / total) * 100)}%)</Text></Text>
+          </HStack>
+        ))}
+      </Box>
+    </Flex>
+  );
+}
+
 // Line chart for values over time (weekly or monthly counts).
 export function LineChart({ data, color = '#2563eb', height = 190 }: { data: LV[]; color?: string; height?: number }) {
   const t = useTheme();
