@@ -47,3 +47,15 @@ test('ADMIN_EMAILS promotes an existing non-admin account', () => {
 test('parseList ignores angle brackets, quotes and spaces', () => {
   assert.deepStrictEqual(parseList('<A@x.ph>, "b@x.ph" ,'), ['a@x.ph', 'b@x.ph']);
 });
+
+test('wrong-tab check: student vs faculty & staff', () => {
+  const { audienceMismatch } = require('./signInPolicy');
+  assert.strictEqual(audienceMismatch('STUDENT', 'STUDENT'), null);
+  assert.strictEqual(audienceMismatch('STAFF', 'FACULTY'), null);
+  assert.strictEqual(audienceMismatch('STAFF', 'DEAN'), null);
+  assert.strictEqual(audienceMismatch('STAFF', 'ADMIN'), null);
+  assert.match(audienceMismatch('STUDENT', 'FACULTY'), /Faculty & Staff tab/);
+  assert.match(audienceMismatch('STAFF', 'STUDENT'), /Student tab/);
+  assert.match(audienceMismatch('STAFF', 'STUDENT', true), /not registered as faculty/);
+  assert.strictEqual(audienceMismatch(undefined, 'STUDENT'), null); // older clients: no check
+});

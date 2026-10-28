@@ -34,4 +34,21 @@ function isProfileComplete(user) {
   return true;
 }
 
-module.exports = { decideSignIn, parseList, isProfileComplete };
+// The login box has a Student tab and a Faculty & Staff tab. The server still decides the role
+// (from the roster / ADMIN_EMAILS); this only stops someone signing in on the wrong tab.
+// audience: 'STUDENT' | 'STAFF' | undefined (older clients: no check).  Returns an error text or null.
+function audienceMismatch(audience, role, isNewAccount = false) {
+  if (audience !== 'STUDENT' && audience !== 'STAFF') return null;
+  const isStaff = role === 'FACULTY' || role === 'DEAN' || role === 'ADMIN';
+  if (audience === 'STUDENT' && isStaff) {
+    return 'This is a faculty/staff account. Please use the Faculty & Staff tab.';
+  }
+  if (audience === 'STAFF' && !isStaff) {
+    return isNewAccount
+      ? 'This email is not registered as faculty or staff. Faculty accounts are added by the administrator. Students: please use the Student tab.'
+      : 'This is a student account. Please use the Student tab.';
+  }
+  return null;
+}
+
+module.exports = { decideSignIn, parseList, isProfileComplete, audienceMismatch };

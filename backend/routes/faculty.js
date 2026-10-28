@@ -45,7 +45,7 @@ const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 // Official ID formats (same rules as the User model).
 const { STUDENT_ID_REGEX: SCHOOL_ID_REGEX, EMPLOYEE_ID_REGEX: FACULTY_ID_REGEX } = require('../utils/idValidator');
 const Broadcast = require('../models/Broadcast');
-const { isProfileComplete, parseList } = require('../utils/signInPolicy');
+const { isProfileComplete, parseList, audienceMismatch } = require('../utils/signInPolicy');
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
@@ -88,7 +88,7 @@ async function issueVerificationLink(user) {
 // === 2. SECURE LOGIN ROUTE ===
 router.post('/login', loginLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, audience } = req.body;
 
     // 1. Find the user
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -117,6 +117,10 @@ router.post('/login', loginLimiter, async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ error: 'Invalid email or password.' });
     }
+
+    // Signed in on the wrong tab (Student vs Faculty & Staff)? Tell them, and issue no token.
+    const wrongTab = audienceMismatch(audience, user.role);
+    if (wrongTab) return res.status(403).json({ error: wrongTab });
 
     // 4. Send back the user data (Do NOT send the hashed password back to the frontend)
     const token = jwt.sign(
