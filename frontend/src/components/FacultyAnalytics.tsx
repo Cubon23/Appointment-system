@@ -4,6 +4,7 @@ import { authFetch } from './authFetch';
 import { ChartCard, HBarChart, KpiTile, PieChart } from './AnalyticsCharts';
 import type { HeatmapData, LV } from './AnalyticsCharts';
 import { AppealsByReason, CohortTable, DrilldownDrawer } from './AnalyticsTables';
+import ExportBar from './ExportBar';
 import type { AppealRow, CohortRow, Drilldown } from './AnalyticsTables';
 import { useColorModeValue } from '@chakra-ui/react';
 
@@ -47,8 +48,9 @@ export default function FacultyAnalytics() {
   const open = (title: string, d: Drilldown, split?: [string, string]) => { setPanel({ title, data: d, split }); drawer.onOpen(); };
 
   return (
-    <VStack align="stretch" spacing={6}>
+    <VStack align="stretch" spacing={6} id="printable-report">
       <Heading size="md" color={text}>My Analytics</Heading>
+      <ExportBar csvPath="/api/analytics/me.csv" fileName="my-analytics.csv" />
 
       <SimpleGrid columns={{ base: 2, md: 3 }} spacing={4}>
         <KpiTile label="Requests" value={k.requests.total} sub={trend(k.requests)} accent="#2563eb" hint="Requests you reviewed or that happened. Requests still waiting for your answer are not counted."

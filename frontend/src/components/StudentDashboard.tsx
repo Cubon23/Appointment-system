@@ -544,7 +544,7 @@ export default function StudentDashboard() {
                         ))}
                       </Select>
                       <Text fontSize="xs" color={mutedText} mt={1}>
-                        Pick from the list or click a slot on the right. Requests need at least {BOOKING_LEAD_HOURS} hrs notice. Default length is {chosenSlot ? `${chosenSlot.duration} minutes` : '1 hour'}; your professor can shorten it when accepting.
+                        Pick from the list or click a slot on the right. Requests need at least {BOOKING_LEAD_HOURS} hour of notice. Default length is {chosenSlot ? `${chosenSlot.duration} minutes` : '1 hour'}; your professor can shorten it when accepting.
                       </Text>
                     </FormControl>
                     <FormControl isRequired><FormLabel color={textColor}>Purpose of Meeting</FormLabel>
@@ -655,14 +655,14 @@ export default function StudentDashboard() {
                             isBeforeCutoff(apt.date, apt.time) ? (
                               <ChakraButton size="xs" colorScheme="gray" variant="outline" onClick={() => { setCancelReason(''); setCancelTarget(apt); }}>Cancel Request</ChakraButton>
                             ) : !hasStarted(apt.date, apt.time) && (
-                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hrs of the requested time.</Text>
+                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hour of the requested time.</Text>
                             )
                           )}
                           {apt.status === 'APPROVED' && (
                             isBeforeCutoff(apt.date, apt.time) ? (
                               <ChakraButton size="xs" colorScheme="red" variant="outline" onClick={() => { setCancelReason(''); setCancelTarget(apt); }}>Cancel Appointment</ChakraButton>
                             ) : !hasStarted(apt.date, apt.time) && (
-                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hrs of the appointment.</Text>
+                              <Text fontSize="xs" color={mutedText}>Can't be cancelled within {CANCEL_CUTOFF_HOURS} hour of the appointment.</Text>
                             )
                           )}
                           {apt.status === 'COMPLETED' && (

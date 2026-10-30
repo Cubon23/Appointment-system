@@ -8,6 +8,7 @@ import SimpleBarChart from './SimpleBarChart';
 import { ChartCard, HBarChart, Heatmap, KpiTile, LineChart, StackedBar } from './AnalyticsCharts';
 import type { HeatmapData, LV } from './AnalyticsCharts';
 import { AppealsByReason, CohortTable, DrilldownDrawer } from './AnalyticsTables';
+import ExportBar from './ExportBar';
 import type { AppealRow, CohortRow, Drilldown } from './AnalyticsTables';
 
 interface Window { total: number; last4: number; prev4: number }
@@ -252,10 +253,13 @@ export default function AnalyticsReport() {
   );
 
   return (
-    <VStack align="stretch" spacing={4}>
+    <VStack align="stretch" spacing={4} id="printable-report">
       <HStack justify="space-between" className="no-print">
         <Text fontSize="xs" color={muted}>Updated {new Date(data.generatedAt).toLocaleTimeString()}</Text>
-        <Button size="xs" variant="outline" onClick={load} isLoading={loading}>Refresh</Button>
+        <HStack spacing={2}>
+          <ExportBar csvPath="/api/analytics/report.csv" fileName="ccis-sync-report.csv" />
+          <Button size="xs" variant="outline" onClick={load} isLoading={loading}>Refresh</Button>
+        </HStack>
       </HStack>
       {/* Printing shows every tab's content one after another, without the tab buttons. */}
       <Tabs variant="soft-rounded" size="sm" colorScheme="blue"

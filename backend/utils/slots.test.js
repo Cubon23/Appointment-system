@@ -13,7 +13,7 @@ test('day of week is timezone independent', () => {
   assert.strictEqual(dayOfWeekOf('2026-10-27'), 2); // Tuesday
 });
 
-// 2026-10-26 is a Monday. "now" is Mon 00:00 Manila so the 12-hour lead excludes nothing later in the week.
+// 2026-10-26 is a Monday. "now" is Mon 00:00 Manila so the lead time excludes nothing later in the week.
 const base = {
   official: [{ dayOfWeek: 2, startTime: '09:00', endTime: '11:00' }],
   added: [], classes: [], appointments: [],
@@ -30,9 +30,14 @@ test('added hours recur every week on their weekday', () => {
   const a = s.filter(x => x.kind === 'ADDED');
   assert.deepStrictEqual(a.map(x => `${x.date} ${x.start}`), ['2026-10-29 13:00', '2026-11-05 13:00']); // Thursdays
 });
-test('slots inside the 12-hour lead time are hidden', () => {
-  const s = buildSlots({ ...base, nowMs: new Date('2026-10-26T21:30:00+08:00').getTime() });
-  assert.deepStrictEqual(s.map(x => x.start), ['10:00']); // 09:00 is 11.5h away, 10:00 is 12.5h away
+test('slots inside the 1-hour lead time are hidden', () => {
+  // Tue 08:30 -> the 09:00 slot is only 30 min away (hidden); 10:00 is 1.5 h away (shown)
+  const s = buildSlots({ ...base, today: '2026-10-27', nowMs: new Date('2026-10-27T08:30:00+08:00').getTime() });
+  assert.deepStrictEqual(s.filter(x => x.date === '2026-10-27').map(x => x.start), ['10:00']);
+});
+test('a slot exactly 1 hour away is still bookable', () => {
+  const s = buildSlots({ ...base, today: '2026-10-27', nowMs: new Date('2026-10-27T08:00:00+08:00').getTime() });
+  assert.deepStrictEqual(s.filter(x => x.date === '2026-10-27').map(x => x.start), ['09:00', '10:00']);
 });
 test('an approved appointment removes the slot', () => {
   const s = buildSlots({ ...base, appointments: [{ date: '2026-10-27', time: '09:00', duration: 60, status: 'APPROVED' }] });

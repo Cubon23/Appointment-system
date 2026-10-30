@@ -24,14 +24,16 @@ function phDateString(offsetDays = 0) {
   return new Date(phMs).toISOString().slice(0, 10);
 }
 
+const REMINDER_MINUTES = 30; // panelist rule: remind 30 minutes before the confirmed start
+
 const startConsultationReminder = () => {
   console.log('Consultation Reminder Job Initialized');
 
-  // Run every 5 minutes, same cadence as the status updater.
-  cron.schedule('*/5 * * * *', async () => {
+  // Run every minute so the 30-minute reminder arrives within about a minute of the 30-minute mark.
+  cron.schedule('* * * * *', async () => {
     try {
       const now = new Date(); // a real instant — correct to compare against regardless of server TZ
-      const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+      const reminderWindowEnd = new Date(now.getTime() + REMINDER_MINUTES * 60 * 1000);
 
       // Only APPROVED, upcoming, not-yet-reminded appointments are candidates. date/time
       // are strings, so we can't query the combined real-world moment directly in Mongo —
@@ -44,13 +46,13 @@ const startConsultationReminder = () => {
 
       for (const apt of candidates) {
         const aptMoment = phMoment(apt.date, apt.time);
-        if (aptMoment > now && aptMoment <= oneHourFromNow) {
+        if (aptMoment > now && aptMoment <= reminderWindowEnd) {
           if (!apt.facultyId) continue; // orphaned record safety check
 
           if (!apt.reminderSent) {
             await notify(apt.facultyId._id, {
               type: 'CONSULTATION_UPCOMING',
-              title: 'Upcoming consultation in 1 hour',
+              title: `Upcoming consultation in ${REMINDER_MINUTES} minutes`,
               message: `${apt.studentName} (${apt.studentSection}) — ${fmtTime(apt.time)} today. Reason: ${apt.reason}`,
             });
             apt.reminderSent = true;
@@ -63,7 +65,7 @@ const startConsultationReminder = () => {
             const studentId = await resolveStudentId(apt);
             await notify(studentId, {
               type: 'CONSULTATION_UPCOMING',
-              title: 'Your consultation starts in 1 hour',
+              title: `Your consultation starts in ${REMINDER_MINUTES} minutes`,
               message: `With ${apt.facultyId.name} — ${fmtTime(apt.time)} today. Purpose: ${apt.reason}`,
             });
           }

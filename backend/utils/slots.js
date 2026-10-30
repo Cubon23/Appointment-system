@@ -42,7 +42,7 @@ const overlaps = (aStart, aEnd, bStart, bEnd) => aStart < bEnd && bStart < aEnd;
 //   classes:      [{dayOfWeek, startTime, endTime}]            teaching blocks
 //   appointments: [{date, time, duration, status}]             PENDING / APPROVED matter
 //   today:        "YYYY-MM-DD" (Manila)   nowMs: epoch ms   flaggedDate: date the faculty is out
-function buildSlots({ official, added, classes, appointments, today, nowMs, weeks = 4, leadHours = 12, flaggedDate = '' }) {
+function buildSlots({ official, added, classes, appointments, today, nowMs, weeks = 4, leadHours = 1, flaggedDate = '' }) {
   const slots = [];
   const days = weeks * 7;
 

@@ -10,6 +10,7 @@ const AppointmentSchema = new mongoose.Schema({
   duration: { type: Number, default: 60 },     // consultation length in minutes
   reason: { type: String, required: true },
   status: { type: String, default: 'PENDING' }, // PENDING, APPROVED, REJECTED, COMPLETED, CANCELLED BY STUDENT / BY FACULTY, MISSED (STUDENT) / (FACULTY)
+  autoRejected: { type: Boolean }, // true when the request expired unanswered (jobs/pendingExpiry.js)
   cancelReason: { type: String, default: '' }, // why the faculty cancelled an approved consultation
   missedAt: { type: Date },                    // when it was marked MISSED (STUDENT) / MISSED (FACULTY)
   reminderSent: { type: Boolean, default: false }, // has the 1-hour-before reminder already been sent to faculty?

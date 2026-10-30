@@ -1,6 +1,7 @@
 const startStatusUpdater = require('./jobs/statusUpdater');
 const startConsultationReminder = require('./jobs/consultationReminder');
 const startMissedAppointments = require('./jobs/missedAppointments');
+const startPendingExpiry = require('./jobs/pendingExpiry');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -49,6 +50,7 @@ mongoose.connect(process.env.MONGO_URI)
     startStatusUpdater();
     startConsultationReminder();
     startMissedAppointments();
+    startPendingExpiry();
 
     // Only start listening for requests AFTER the database connects
     const PORT = process.env.PORT || 5000;
@@ -63,4 +65,4 @@ mongoose.connect(process.env.MONGO_URI)
 // A simple test route to make sure the server is alive
 app.get('/', (req, res) => {
   res.send('Faculty Attendance API is running...');
-});
+});

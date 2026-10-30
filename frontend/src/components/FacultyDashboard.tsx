@@ -1184,7 +1184,7 @@ const saveConsultationHours = async () => {
                       </Td>
                       <Td>
                         {apt.status === 'PENDING' && (
-                          isBeforeCutoff(apt.date, apt.time) ? (
+                          !hasStarted(apt.date, apt.time) ? (
                             <HStack spacing={2}>
                               <Select
                                 size="xs" w="110px" title="Consultation length"
@@ -1199,7 +1199,7 @@ const saveConsultationHours = async () => {
                               <ChakraButton size="xs" colorScheme="red" onClick={() => { setCancelReason(''); setCancelMode('reject'); setCancelTarget(apt); }}>Reject</ChakraButton>
                             </HStack>
                           ) : (
-                            <Text fontSize="xs" color={mutedText}>Response window closed (under {CANCEL_CUTOFF_HOURS} hrs).</Text>
+                            <Text fontSize="xs" color={mutedText}>This request expired unanswered.</Text>
                           )
                         )}
                         {apt.status === 'APPROVED' && (
@@ -1210,7 +1210,7 @@ const saveConsultationHours = async () => {
                             {isBeforeCutoff(apt.date, apt.time) ? (
                               <ChakraButton size="xs" colorScheme="red" variant="outline" onClick={() => { setCancelReason(''); setCancelMode('cancel'); setCancelTarget(apt); }}>Cancel</ChakraButton>
                             ) : !hasStarted(apt.date, apt.time) && (
-                              <Text fontSize="xs" color={mutedText}>Can't cancel within {CANCEL_CUTOFF_HOURS} hrs.</Text>
+                              <Text fontSize="xs" color={mutedText}>Can't cancel within {CANCEL_CUTOFF_HOURS} hour of the start.</Text>
                             )}
                           </HStack>
                         )}
