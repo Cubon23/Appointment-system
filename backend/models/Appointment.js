@@ -11,6 +11,7 @@ const AppointmentSchema = new mongoose.Schema({
   reason: { type: String, required: true },
   status: { type: String, default: 'PENDING' }, // PENDING, APPROVED, REJECTED, COMPLETED, CANCELLED BY STUDENT / BY FACULTY, MISSED (STUDENT) / (FACULTY)
   cancelReason: { type: String, default: '' }, // why the faculty cancelled an approved consultation
+  autoRejected: { type: Boolean },             // true when the system rejected an unanswered request at its start time
   missedAt: { type: Date },                    // when it was marked MISSED (STUDENT) / MISSED (FACULTY)
   reminderSent: { type: Boolean, default: false }, // has the 1-hour-before reminder already been sent to faculty?
   studentReminderSent: { type: Boolean, default: false }, // ...and to the student (in-app + email)?
