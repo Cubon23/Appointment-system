@@ -1,5 +1,6 @@
 // One place for how appointment statuses are named and coloured on every dashboard.
 const LABELS: Record<string, string> = {
+  PENDING: 'Waiting for Faculty Approval',
   'CANCELLED BY STUDENT': 'Cancelled by student',
   'CANCELLED BY FACULTY': 'Cancelled by faculty',
   'CANCELLED (FACULTY ON LEAVE)': 'Cancelled (faculty on leave)',
@@ -18,16 +19,17 @@ export const statusColor = (status: string): string => {
   return 'gray'; // all CANCELLED variants
 };
 
-// Time limits (must match the backend): students book 12+ hours ahead; every response
-// to a request (student cancel, faculty approve / reject / cancel) needs 8+ hours ahead.
-export const BOOKING_LEAD_HOURS = 12;
-export const CANCEL_CUTOFF_HOURS = 8;
+// Time limits (must match the backend, utils/appointmentTime.js): students may request, and
+// students and faculty may cancel, up to 1 hour before the start. A pending request can be
+// answered by the faculty member until its start time, then the system rejects it automatically.
+export const BOOKING_LEAD_HOURS = 1;
+export const CANCEL_CUTOFF_HOURS = 1;
 
 export const hoursUntil = (date: string, time: string): number =>
   (new Date(`${date}T${time}:00+08:00`).getTime() - Date.now()) / 36e5;
 
-// True while there are still 8+ hours before the appointment: the window in which a
-// student can cancel, and in which faculty can approve / reject / cancel.
+// True while there is still at least 1 hour before the appointment: the window in which a
+// student or faculty member can cancel.
 export const isBeforeCutoff = (date: string, time: string): boolean =>
   hoursUntil(date, time) >= CANCEL_CUTOFF_HOURS;
 

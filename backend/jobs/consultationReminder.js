@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const Appointment = require('../models/Appointment');
 const { notify, resolveStudentId, fmtTime } = require('../utils/notify');
+const { inReminderWindow, REMINDER_MINUTES } = require('../utils/appointmentTime');
 
 // All appointment date/time strings in this system ('YYYY-MM-DD' / 'HH:MM') are entered,
 // shown, and meant to be read as Philippine local time (UTC+8) — the school is in the
@@ -27,11 +28,10 @@ function phDateString(offsetDays = 0) {
 const startConsultationReminder = () => {
   console.log('Consultation Reminder Job Initialized');
 
-  // Run every 5 minutes, same cadence as the status updater.
-  cron.schedule('*/5 * * * *', async () => {
+  // Every minute, so the 30-minute reminder is on time (every 5 minutes could be up to 5 minutes late).
+  cron.schedule('* * * * *', async () => {
     try {
       const now = new Date(); // a real instant — correct to compare against regardless of server TZ
-      const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
 
       // Only APPROVED, upcoming, not-yet-reminded appointments are candidates. date/time
       // are strings, so we can't query the combined real-world moment directly in Mongo —
@@ -43,14 +43,13 @@ const startConsultationReminder = () => {
       }).populate('facultyId', '_id name');
 
       for (const apt of candidates) {
-        const aptMoment = phMoment(apt.date, apt.time);
-        if (aptMoment > now && aptMoment <= oneHourFromNow) {
+        if (inReminderWindow(apt, now.getTime())) {
           if (!apt.facultyId) continue; // orphaned record safety check
 
           if (!apt.reminderSent) {
             await notify(apt.facultyId._id, {
               type: 'CONSULTATION_UPCOMING',
-              title: 'Upcoming consultation in 1 hour',
+              title: `Upcoming consultation in ${REMINDER_MINUTES} minutes`,
               message: `${apt.studentName} (${apt.studentSection}) — ${fmtTime(apt.time)} today. Reason: ${apt.reason}`,
             });
             apt.reminderSent = true;
@@ -63,7 +62,7 @@ const startConsultationReminder = () => {
             const studentId = await resolveStudentId(apt);
             await notify(studentId, {
               type: 'CONSULTATION_UPCOMING',
-              title: 'Your consultation starts in 1 hour',
+              title: `Your consultation starts in ${REMINDER_MINUTES} minutes`,
               message: `With ${apt.facultyId.name} — ${fmtTime(apt.time)} today. Purpose: ${apt.reason}`,
             });
           }

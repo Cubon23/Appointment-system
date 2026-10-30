@@ -49,8 +49,7 @@ const { isProfileComplete, parseList, audienceMismatch } = require('../utils/sig
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
-const BOOKING_LEAD_HOURS  = 12; // students must request at least this long before the appointment
-const CANCEL_CUTOFF_HOURS = 8;  // an APPROVED appointment can't be cancelled inside this window
+const { BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } = require('../utils/appointmentTime'); // 1 hour to book, 1 hour to cancel
 const hoursUntil = (date, time) => (manilaDate(date, time).getTime() - Date.now()) / 36e5;
 
 // ---- Access control helpers ------------------------------------------------
@@ -202,12 +201,12 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
       }
       // Pending or approved: cancelling needs 8+ hours before the appointment
       if (hoursUntil(targetApt.date, targetApt.time) < CANCEL_CUTOFF_HOURS) {
-        return res.status(400).json({ error: `Requests and appointments can only be cancelled at least ${CANCEL_CUTOFF_HOURS} hours before the scheduled time.` });
+        return res.status(400).json({ error: 'Requests and appointments can only be cancelled up to 1 hour before the scheduled time.' });
       }
     }
-    // Faculty (or anyone else) approving / declining a request has the same 8-hour cutoff
-    if ((status === 'APPROVED' || status === 'REJECTED') && hoursUntil(targetApt.date, targetApt.time) < CANCEL_CUTOFF_HOURS) {
-      return res.status(400).json({ error: `Requests can only be approved or declined at least ${CANCEL_CUTOFF_HOURS} hours before the requested time.` });
+    // A request can be answered until its start time; after that the system rejects it automatically.
+    if ((status === 'APPROVED' || status === 'REJECTED') && hoursUntil(targetApt.date, targetApt.time) <= 0) {
+      return res.status(400).json({ error: 'The requested time has already started, so this request can no longer be answered.' });
     }
     if ((status === 'CANCELLED BY STUDENT' || status === 'REJECTED') && !reason) {
       return res.status(400).json({ error: 'Please select or enter a reason.' });
@@ -489,7 +488,7 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
     const studentId = req.user.userId; // from the verified login token, not the request body
 
     // The request must match a real, open slot (official or added consultation hours): this covers
-    // the 12-hour lead time, operating hours, classes, approved appointments and the faculty's
+    // the 1-hour lead time, operating hours, classes, approved appointments and the faculty's
     // out-of-office date. The duration comes from the slot, not from the student.
     const faculty = await User.findOne({ _id: facultyId, role: 'FACULTY' }).select('flaggedDate');
     if (!faculty) return res.status(404).json({ error: 'Faculty member not found.' });
@@ -1047,7 +1046,7 @@ router.patch('/appointment/:id/cancel', requireAuth(['FACULTY']), async (req, re
       return res.status(400).json({ error: 'This consultation date has already passed.' });
     }
     if (hoursUntil(apt.date, apt.time) < CANCEL_CUTOFF_HOURS) {
-      return res.status(400).json({ error: `Approved appointments can only be cancelled at least ${CANCEL_CUTOFF_HOURS} hours before the scheduled time.` });
+      return res.status(400).json({ error: 'Approved appointments can only be cancelled up to 1 hour before the scheduled time.' });
     }
     const reason = String(req.body.reason || '').trim().slice(0, 300);
     if (!reason) return res.status(400).json({ error: 'Please select or enter a reason.' });

@@ -30,9 +30,11 @@ test('added hours recur every week on their weekday', () => {
   const a = s.filter(x => x.kind === 'ADDED');
   assert.deepStrictEqual(a.map(x => `${x.date} ${x.start}`), ['2026-10-29 13:00', '2026-11-05 13:00']); // Thursdays
 });
-test('slots inside the 12-hour lead time are hidden', () => {
-  const s = buildSlots({ ...base, nowMs: new Date('2026-10-26T21:30:00+08:00').getTime() });
-  assert.deepStrictEqual(s.map(x => x.start), ['10:00']); // 09:00 is 11.5h away, 10:00 is 12.5h away
+test('slots inside the 1-hour lead time are hidden', () => {
+  const s = buildSlots({ ...base, nowMs: new Date('2026-10-27T08:30:00+08:00').getTime() });
+  assert.deepStrictEqual(s.map(x => x.start), ['10:00']); // 09:00 is 30 min away, 10:00 is 1.5h away
+  const edge = buildSlots({ ...base, nowMs: new Date('2026-10-27T08:00:00+08:00').getTime() });
+  assert.deepStrictEqual(edge.map(x => x.start), ['09:00', '10:00']); // exactly 1h away is still bookable
 });
 test('an approved appointment removes the slot', () => {
   const s = buildSlots({ ...base, appointments: [{ date: '2026-10-27', time: '09:00', duration: 60, status: 'APPROVED' }] });
