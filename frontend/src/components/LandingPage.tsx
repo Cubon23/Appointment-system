@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ViewIcon, ViewOffIcon, EmailIcon, PhoneIcon, CalendarIcon, CheckCircleIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { useNavigate } from 'react-router-dom';
+import { isSafeAppLink, linkMatchesRole } from '../utils/deepLink';
 import GoogleSignInButton from './GoogleSignInButton';
 import PrivacyPolicyModal from './PrivacyPolicyModal';
 import {
@@ -193,11 +194,11 @@ export default function LandingPage() {
 
     toast({ title: 'Login Successful', status: 'success', duration: 2000 });
 
-    // QR Attendance
+    // Continue to the page a notification link was pointing at (saved by ProtectedRoute before sign-in).
+    // One-shot, and only used when it is an allowlisted path on THIS person's own dashboard.
     const intendedRoute = sessionStorage.getItem('intendedRoute');
-    
-    if (intendedRoute && data.role === 'STUDENT') {
-      sessionStorage.removeItem('intendedRoute'); // Clear it so it doesn't fire again later
+    sessionStorage.removeItem('intendedRoute');
+    if (isSafeAppLink(intendedRoute) && linkMatchesRole(intendedRoute, data.role)) {
       navigate(intendedRoute);
       return;
     }
