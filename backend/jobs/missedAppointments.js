@@ -21,12 +21,14 @@ async function markMissedFaculty() {
       type: 'APPOINTMENT_UPDATE',
       title: 'Consultation not signed off',
       message: `Your approved consultation with ${apt.studentName} on ${when} was never completed or marked as a no-show, so it is counted as missed. If it did take place, you can still log it in your Consultation Log.`,
+      appointmentId: apt._id,
     });
     const student = apt.studentId || (await User.findOne({ role: 'STUDENT', name: apt.studentName }).select('_id'))?._id;
     await notify(student, {
       type: 'APPOINTMENT_UPDATE',
       title: 'Consultation not held',
       message: `Your consultation on ${when} was not completed by your instructor.`,
+      appointmentId: apt._id,
     });
   }
   return overdue.length;

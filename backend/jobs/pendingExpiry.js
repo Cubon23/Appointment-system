@@ -25,6 +25,7 @@ async function expirePendingRequests(nowMs = Date.now()) {
       type: 'APPOINTMENT_UPDATE',
       title: 'Consultation request expired',
       message: `Your request for ${fmtDate(updated.date)} at ${fmtTime(updated.time)} was automatically rejected because the faculty member did not respond before the requested time. Please choose another slot.`,
+      appointmentId: updated._id,
     });
   }
   return expired;

@@ -48,6 +48,8 @@ const { STUDENT_ID_REGEX: SCHOOL_ID_REGEX, EMPLOYEE_ID_REGEX: FACULTY_ID_REGEX }
 const Broadcast = require('../models/Broadcast');
 const { isProfileComplete, parseList, audienceMismatch } = require('../utils/signInPolicy');
 const { bulkCancelDecision, MAX_BULK } = require('../utils/bulkCancel');
+const { canViewAppointment } = require('../utils/appointmentAccess');
+const { isObjectIdHex } = require('../utils/notifyLink');
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
@@ -285,6 +287,7 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
           type: 'APPOINTMENT_UPDATE',
           title: 'Consultation request declined',
           message: `Your request on ${fmtDate(r.date)} at ${fmtTime(r.time)} was declined because the slot went to another student. Please choose another slot.`,
+          appointmentId: r._id,
         });
       }
     }
@@ -296,6 +299,7 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
           type: 'APPOINTMENT_UPDATE',
           title: 'Consultation cancelled by student',
           message: `${targetApt.studentName} cancelled the consultation on ${when}. Reason: ${reason}`,
+          appointmentId: targetApt._id,
         });
       } else {
         const faculty = await User.findById(targetApt.facultyId).select('name');
@@ -304,6 +308,7 @@ router.put('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
           type: 'APPOINTMENT_UPDATE',
           title: `Consultation ${verb}`,
           message: `Your request with ${faculty ? faculty.name : 'your instructor'} on ${when} was ${verb}.${status === 'REJECTED' && reason ? ` Reason: ${reason}` : ''}`,
+          appointmentId: targetApt._id,
         });
       }
     }
@@ -338,6 +343,7 @@ router.post('/schedule/add', requireAuth(STAFF), async (req, res) => {
       type: 'SCHEDULE_ASSIGNED',
       title: 'New class added to your schedule',
       message: `${subject} in ${room}, ${fmtTime(startTime)} - ${fmtTime(endTime)}.`,
+      page: 'schedule',
     });
     res.json({ message: 'Schedule assigned successfully!' });
   } catch (error) {
@@ -531,6 +537,7 @@ router.post('/appointment', requireAuth(['STUDENT']), async (req, res) => {
       type: 'APPOINTMENT_REQUEST',
       title: 'New consultation request',
       message: `${studentName} (${studentSection}) requested ${fmtDate(date)} at ${fmtTime(time)}. Reason: ${String(reason).slice(0, 100)}`,
+      appointmentId: newAppointment._id,
     });
 
     res.json({ message: 'Appointment requested successfully!', appointment: newAppointment });
@@ -778,10 +785,10 @@ router.post('/appointment/:id/appeal', requireAuth(['STUDENT', 'FACULTY']), asyn
 
     const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
     if (role === 'STUDENT') {
-      await notify(apt.facultyId, { type: 'APPEAL', title: 'Student appeal', message: `${apt.studentName} appealed the consultation on ${when}. Reason: ${reason}` });
+      await notify(apt.facultyId, { type: 'APPEAL', title: 'Student appeal', message: `${apt.studentName} appealed the consultation on ${when}. Reason: ${reason}`, appointmentId: apt._id });
     } else {
       const me = await User.findById(req.user.userId).select('name');
-      await notifyRole('DEAN', { type: 'APPEAL', title: 'Faculty appeal', message: `${me ? me.name : 'A faculty member'} appealed the consultation with ${apt.studentName} on ${when}. Reason: ${reason}` });
+      await notifyRole('DEAN', { type: 'APPEAL', title: 'Faculty appeal', message: `${me ? me.name : 'A faculty member'} appealed the consultation with ${apt.studentName} on ${when}. Reason: ${reason}`, appointmentId: apt._id });
     }
     res.json({ message: 'Appeal submitted.', appointment: apt });
   } catch (error) {
@@ -807,6 +814,19 @@ router.get('/appointments/student/:studentId', requireAuth(['STUDENT','ADMIN','D
     res.json(appointments);
   } catch (error) {
     res.status(500).json({ error: 'Server error fetching student appointments' });
+  }
+});
+
+// One appointment, for the details drawer that a notification link opens (?apt=<id>).
+// Answers 404 both when the id does not exist and when it is not yours, so it cannot be used to find out which ids exist.
+router.get('/appointment/:id', requireAuth(ALL_ROLES), async (req, res) => {
+  try {
+    if (!isObjectIdHex(req.params.id)) return res.status(404).json({ error: 'Appointment not found.' });
+    const apt = await Appointment.findById(req.params.id).populate('facultyId', 'name').lean();
+    if (!apt || !canViewAppointment(req.user, apt)) return res.status(404).json({ error: 'Appointment not found.' });
+    res.json(apt);
+  } catch (error) {
+    res.status(500).json({ error: 'Server error fetching the appointment.' });
   }
 });
 
@@ -979,6 +999,7 @@ router.patch('/appointment/:id/complete', requireAuth(['FACULTY']), async (req, 
       type: 'CONSULTATION_LOGGED',
       title: 'Consultation completed',
       message: `Your consultation on ${fmtDate(apt.date)} was logged and signed off by your instructor.`,
+      appointmentId: apt._id,
     });
 
     res.json({ message: 'Consultation logged and signed off.', appointment: apt });
@@ -1013,6 +1034,7 @@ router.patch('/appointment/:id/cancel', requireAuth(['FACULTY']), async (req, re
       type: 'APPOINTMENT_UPDATE',
       title: 'Consultation cancelled by instructor',
       message: `${faculty ? faculty.name : 'Your instructor'} cancelled your consultation on ${fmtDate(apt.date)} at ${fmtTime(apt.time)}.${reason ? ` Reason: ${reason}` : ''}`,
+      appointmentId: apt._id,
     });
     res.json({ message: 'Consultation cancelled.', appointment: apt });
   } catch (error) {
@@ -1047,10 +1069,10 @@ router.post('/appointments/bulk-cancel', requireAuth(['STUDENT', 'FACULTY']), as
 
       const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
       if (role === 'STUDENT') {
-        await notify(apt.facultyId, { type: 'APPOINTMENT_UPDATE', title: 'Consultation cancelled by student', message: `${apt.studentName} cancelled the consultation on ${when}. Reason: ${reason}` });
+        await notify(apt.facultyId, { type: 'APPOINTMENT_UPDATE', title: 'Consultation cancelled by student', message: `${apt.studentName} cancelled the consultation on ${when}. Reason: ${reason}`, appointmentId: apt._id });
       } else {
         const verb = d.newStatus === 'REJECTED' ? 'declined' : 'cancelled';
-        await notify(await resolveStudentId(apt), { type: 'APPOINTMENT_UPDATE', title: `Consultation ${verb}`, message: `${me ? me.name : 'Your instructor'} ${verb} your consultation on ${when}. Reason: ${reason}` });
+        await notify(await resolveStudentId(apt), { type: 'APPOINTMENT_UPDATE', title: `Consultation ${verb}`, message: `${me ? me.name : 'Your instructor'} ${verb} your consultation on ${when}. Reason: ${reason}`, appointmentId: apt._id });
       }
     }
     res.json({ message: `${cancelled.length} cancelled${skipped.length ? `, ${skipped.length} could not be cancelled` : ''}.`, cancelled, skipped });
@@ -1080,6 +1102,7 @@ router.patch('/appointment/:id/no-show', requireAuth(['FACULTY']), async (req, r
       type: 'APPOINTMENT_UPDATE',
       title: 'Consultation missed',
       message: `You did not attend your consultation on ${fmtDate(apt.date)} at ${fmtTime(apt.time)}.`,
+      appointmentId: apt._id,
     });
     res.json({ message: 'Marked as student no-show.', appointment: apt });
   } catch (error) {

@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { emailLink } = require('./notifyLink');
 
 // Lazily builds a transporter only if real SMTP credentials are present in .env.
 // Without them, sendMail() below falls back to printing the link to the server
@@ -79,14 +80,14 @@ async function sendResetEmail(to, link) {
 const esc = (v) => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // A plain email copy of an in-app notification (approved, declined, cancelled, reminder, appeal...).
-async function sendNotificationEmail(to, { title, message }) {
-  const appUrl = (process.env.FRONTEND_URL || 'http://localhost:5173').split(',')[0].trim();
+async function sendNotificationEmail(to, { title, message, link }) {
+  const appUrl = emailLink(link); // the exact page when the link is safe, otherwise the app's home page
   return sendMail({
     to,
     subject: `CCIS Sync: ${title}`,
     html: `<p><b>${esc(title)}</b></p>
            <p>${esc(message)}</p>
-           <p><a href="${esc(appUrl)}">Open CCIS Sync</a></p>
+           <p><a href="${esc(appUrl)}">${link ? 'View in CCIS Sync' : 'Open CCIS Sync'}</a></p>
            <p style="color:#888;font-size:12px">You are receiving this because it is also in your CCIS Sync notifications.</p>`
   });
 }

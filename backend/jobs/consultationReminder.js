@@ -51,6 +51,7 @@ const startConsultationReminder = () => {
               type: 'CONSULTATION_UPCOMING',
               title: `Upcoming consultation in ${REMINDER_MINUTES} minutes`,
               message: `${apt.studentName} (${apt.studentSection}) — ${fmtTime(apt.time)} today. Reason: ${apt.reason}`,
+              appointmentId: apt._id,
             });
             apt.reminderSent = true;
           }
@@ -64,6 +65,7 @@ const startConsultationReminder = () => {
               type: 'CONSULTATION_UPCOMING',
               title: `Your consultation starts in ${REMINDER_MINUTES} minutes`,
               message: `With ${apt.facultyId.name} — ${fmtTime(apt.time)} today. Purpose: ${apt.reason}`,
+              appointmentId: apt._id,
             });
           }
           await apt.save();
