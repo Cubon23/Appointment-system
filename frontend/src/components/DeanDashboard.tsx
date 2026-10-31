@@ -10,6 +10,8 @@ import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
 import ProfileGate from './ProfileGate';
 import NotificationBell from './NotificationBell';
+import AppointmentDetailsDrawer from './AppointmentDetailsDrawer';
+import { useDeepLink } from '../utils/useDeepLink';
 import AnalyticsReport from './AnalyticsReport';
 import DeanBroadcastPanel from './DeanBroadcastPanel';
 import DeanAppeals from './DeanAppeals';
@@ -34,6 +36,8 @@ export default function DeanDashboard() {
 
   // Unified Page State
   const [activePage, setActivePage] = useState<'broadcast' | 'roster' | 'reports' | 'records' | 'appeals'>('reports');
+  // Notification links: ?page= switches page, ?apt= opens that appointment's details
+  const { aptId, closeApt } = useDeepLink(['broadcast', 'roster', 'reports', 'records', 'appeals'] as const, setActivePage);
   
   // Custom Navy Sidebar Color palette
   const dk = colorMode === 'dark';
@@ -311,6 +315,7 @@ export default function DeanDashboard() {
           <DeanBroadcastPanel C={C} />
         )}
       </Box>
+      <AppointmentDetailsDrawer aptId={aptId} onClose={closeApt} />
     </Flex>
   );
 }

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
+import { isSafeAppLink } from '../utils/deepLink';
 
 function isTokenExpired(token: string): boolean {
   try {
@@ -16,11 +17,16 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
+  const location = useLocation();
   const userRole = localStorage.getItem('userRole');
   const token = localStorage.getItem('token');
 
   if (!userRole || !token || isTokenExpired(token)) {
+    // Signed out (or session expired) while opening a notification link: remember where they were going,
+    // so sign-in can continue there. Only an allowlisted path on this app is ever kept.
+    const here = location.pathname + location.search;
     localStorage.clear();
+    if (isSafeAppLink(here)) sessionStorage.setItem('intendedRoute', here);
     return <Navigate to="/" replace />;
   }
 

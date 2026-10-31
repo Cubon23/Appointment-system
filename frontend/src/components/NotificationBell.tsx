@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Popover, PopoverTrigger, PopoverContent, PopoverHeader, PopoverBody, Portal,
-  Box, Flex, HStack, Text, CloseButton, useColorModeValue,
+  Box, Flex, HStack, Text, CloseButton, useColorModeValue, useDisclosure,
 } from '@chakra-ui/react';
 import { EmailIcon } from '@chakra-ui/icons';
 import moment from 'moment';
 import { authFetch } from './authFetch';
+import { isSafeAppLink, linkMatchesRole } from '../utils/deepLink';
 
 const API = import.meta.env.VITE_API_URL;
 const POLL_MS = 10000;
@@ -16,6 +18,7 @@ interface AppNotification {
   title: string;
   message: string;
   read: boolean;
+  link?: string | null; // a path on this app built by the server; checked again here before use
   createdAt: string;
 }
 
@@ -30,6 +33,8 @@ interface Props {
 export default function NotificationBell({ navText, navBg }: Props) {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
+  const navigate = useNavigate();
+  const { isOpen, onOpen, onClose } = useDisclosure();
 
   const panelBg = useColorModeValue('#ffffff', '#0f1b2d');
   const panelBorder = useColorModeValue('#e2e8f0', '#1e3048');
@@ -61,6 +66,19 @@ export default function NotificationBell({ navText, navBg }: Props) {
     catch { load(); }
   };
 
+  // Where a message leads: only a link that passes the allowlist AND belongs to this person's own dashboard.
+  const targetOf = (n: AppNotification): string | null => {
+    const l = n.link;
+    return isSafeAppLink(l) && linkMatchesRole(l, localStorage.getItem('userRole')) ? l : null;
+  };
+
+  // Click a message: mark it read, then (when it has a link) close the mailbox and open the page / details drawer.
+  const openItem = (n: AppNotification) => {
+    markRead(n);
+    const to = targetOf(n);
+    if (to) { onClose(); navigate(to); }
+  };
+
   const markAllRead = async () => {
     setItems(prev => prev.map(i => ({ ...i, read: true })));
     setUnread(0);
@@ -90,7 +108,7 @@ export default function NotificationBell({ navText, navBg }: Props) {
   };
 
   return (
-    <Popover placement="right-start" isLazy onOpen={load}>
+    <Popover placement="right-start" isLazy isOpen={isOpen} onOpen={() => { onOpen(); load(); }} onClose={onClose}>
       <PopoverTrigger>
         <button
           aria-label={unread > 0 ? `Mail, ${unread} unread` : 'Mail'}
@@ -164,7 +182,7 @@ export default function NotificationBell({ navText, navBg }: Props) {
                 >
                   <Box
                     as="button"
-                    onClick={() => markRead(n)}
+                    onClick={() => openItem(n)}
                     flex="1" minW={0} textAlign="left" pl={4} py={3} pr={1}
                     _hover={{ opacity: 0.85 }}
                   >
@@ -173,7 +191,10 @@ export default function NotificationBell({ navText, navBg }: Props) {
                       <Box minW={0}>
                         <Text fontSize="13px" fontWeight={n.read ? 500 : 700}>{n.title}</Text>
                         <Text fontSize="12px" color={mutedColor} mt="2px">{n.message}</Text>
-                        <Text fontSize="11px" color={mutedColor} mt="4px">{moment(n.createdAt).fromNow()}</Text>
+                        <Text fontSize="11px" color={mutedColor} mt="4px">
+                          {moment(n.createdAt).fromNow()}
+                          {targetOf(n) && <Text as="span" color="#2563eb" fontWeight={600}> · View details</Text>}
+                        </Text>
                       </Box>
                     </Flex>
                   </Box>

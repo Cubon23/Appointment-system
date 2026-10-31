@@ -15,6 +15,8 @@ import { authFetch } from './authFetch';
 import LogoutConfirm from './LogoutConfirm';
 import { statusColor, statusLabel, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOURS, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
+import AppointmentDetailsDrawer from './AppointmentDetailsDrawer';
+import { useDeepLink } from '../utils/useDeepLink';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
 import BulkCancelModal from './BulkCancelModal';
@@ -87,6 +89,8 @@ export default function StudentDashboard() {
   const { colorMode, toggleColorMode } = useColorMode();
 
   const [activePage, setActivePage] = useState('home');
+  // Notification links: ?page= switches page, ?apt= opens that appointment's details
+  const { aptId, closeApt } = useDeepLink(['home', 'appointments', 'requests', 'profile'] as const, setActivePage);
   const [faculty, setFaculty] = useState<any[]>([]);
   const [studentSection] = useState(localStorage.getItem('programPosition') || '');
 
@@ -731,6 +735,7 @@ export default function StudentDashboard() {
         }}
       />
       <PrivacyPolicyModal isOpen={isPrivacyOpen} onClose={onPrivacyClose} />
+      <AppointmentDetailsDrawer aptId={aptId} onClose={closeApt} />
       <Modal isOpen={isMasterOpen} onClose={onMasterClose} size="4xl" isCentered scrollBehavior="inside">
         <ModalOverlay />
         <ModalContent bg={cardBg}>

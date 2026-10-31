@@ -14,6 +14,8 @@ import LogoutConfirm from './LogoutConfirm';
 import ProfileGate from './ProfileGate';
 import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOURS } from './appointmentStatus';
 import NotificationBell from './NotificationBell';
+import AppointmentDetailsDrawer from './AppointmentDetailsDrawer';
+import { useDeepLink } from '../utils/useDeepLink';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
 import BulkCancelModal from './BulkCancelModal';
@@ -147,6 +149,8 @@ export default function FacultyDashboard() {
 
   // ── UI State ─────────────────────────────────────────────────────────────────
   const [activePage, setActivePage] = useState<Page>("schedule");
+  // Notification links: ?page= switches page, ?apt= opens that appointment's details
+  const { aptId, closeApt } = useDeepLink<Page>(["status", "schedule", "requests", "log", "analytics", "profile"], setActivePage);
   const [weekOffset, setWeekOffset] = useState(0);
   const [viewMode,   setViewMode]   = useState<ViewMode>("week");
   const [focusDay,   setFocusDay]   = useState(0);       
@@ -1361,6 +1365,7 @@ const saveConsultationHours = async () => {
           </Box>
         )}
       </main>
+      <AppointmentDetailsDrawer aptId={aptId} onClose={closeApt} />
     </div>
   );
 }
