@@ -17,6 +17,7 @@ import { statusColor, statusLabel, isBeforeCutoff, hasStarted, BOOKING_LEAD_HOUR
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { STUDENT_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
+import BulkCancelModal from './BulkCancelModal';
 import WeeklyCalendar from './WeeklyCalendar';
 import SidebarIdentity from './SidebarIdentity';
 import WelcomeHeader from './WelcomeHeader';
@@ -127,6 +128,7 @@ export default function StudentDashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [myRequests, setMyRequests] = useState<any[]>([]);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const { isOpen: isSummaryOpen, onOpen: onSummaryOpen, onClose: onSummaryClose } = useDisclosure();
   const [summaryApt, setSummaryApt] = useState<any>(null);
   const viewAccomplishment = (apt: any) => { setSummaryApt(apt); onSummaryOpen(); };
@@ -634,6 +636,10 @@ export default function StudentDashboard() {
 
           {activePage === 'requests' && (
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
+              <Flex justify="flex-end" mb={3}>
+                <ChakraButton size="sm" colorScheme="red" variant="outline" onClick={() => setBulkOpen(true)}>Cancel several…</ChakraButton>
+              </Flex>
+              <BulkCancelModal isOpen={bulkOpen} onClose={() => setBulkOpen(false)} role="STUDENT" appointments={myRequests} onDone={fetchData} />
               <TableContainer>
                 <Table variant="simple" size="sm">
                   <Thead><Tr><Th color={mutedText}>Professor</Th><Th color={mutedText}>Date/Time</Th><Th color={mutedText}>Reason</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>

@@ -9,10 +9,10 @@ import { useColorModeValue } from '@chakra-ui/react';
 
 interface Window { total: number; last4: number; prev4: number }
 interface Data {
-  kpis: { requests: Window; completed: Window; approved: Window & { declined: number }; missed: Window & { student: number; faculty: number }; cancelled: { student: number; faculty: number }; completionRate: number | null; missedRate: number | null };
+  kpis: { requests: Window; completed: Window; approved: Window & { declined: number; expired: number }; missed: Window & { student: number; faculty: number }; cancelled: { student: number; faculty: number }; completionRate: number | null; missedRate: number | null };
   drilldown: { requests: Drilldown; completed: Drilldown; approved: Drilldown; missed: Drilldown; cancelled: Drilldown };
   outcomes: {
-    requests: number; completed: number; upcoming: number; declined: number; studentNoShows: number; missedByFaculty: number;
+    requests: number; completed: number; upcoming: number; declined: number; expired: number; studentNoShows: number; missedByFaculty: number;
     cancelledByStudent: number; cancelledByFaculty: number; completionRate: number | null; missedRate: number | null; approvalRate: number | null;
   };
   weekly: LV[];
@@ -59,7 +59,7 @@ export default function FacultyAnalytics() {
         <KpiTile label="Cancelled" value={k.cancelled.student + k.cancelled.faculty} sub={`${k.cancelled.student} by students · ${k.cancelled.faculty} by faculty`} accent="#64748b"
           onClick={() => open('Cancelled consultations', data.drilldown.cancelled, ['Cancelled by students', 'Cancelled by me'])} />
         <KpiTile label="Completion rate" value={pctText(k.completionRate)} sub="completed ÷ (completed + missed)" accent="#8b5cf6" hint="Of the consultations that were supposed to happen, how many were completed." />
-        <KpiTile label="Approved" value={k.approved.total} sub={`${trend(k.approved)} · ${o.declined} declined`} accent="#0891b2" hint="Requests you approved. Approval rate = approved ÷ (approved + declined)."
+        <KpiTile label="Approved" value={k.approved.total} sub={`${trend(k.approved)} · ${o.declined} declined · ${o.expired} expired`} accent="#0891b2" hint="Requests you approved. Approval rate = approved ÷ (approved + declined). Requests that expired unanswered are shown separately and do not lower it."
           onClick={() => open('Approved requests', data.drilldown.approved)} />
       </SimpleGrid>
 
@@ -71,6 +71,7 @@ export default function FacultyAnalytics() {
             { label: 'Cancelled by students', value: o.cancelledByStudent, color: '#94a3b8' },
             { label: 'Missed by me', value: o.missedByFaculty, color: '#e11d48' },
             { label: 'Cancelled by me', value: o.cancelledByFaculty, color: '#64748b' },
+            { label: 'Expired (no response)', value: o.expired, color: '#ca8a04' },
           ]} />
         </ChartCard>
         <Box gridColumn={{ lg: 'span 2' }}>

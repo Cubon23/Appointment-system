@@ -2,16 +2,20 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { sendNotificationEmail } = require('./mailer');
 
-// Notification types that are also emailed to the person's school Gmail. Mass announcements
-// (DEAN_BROADCAST) and housekeeping notices stay in-app only. Set EMAIL_NOTIFICATIONS=off to disable.
-const EMAIL_TYPES = new Set(['APPOINTMENT_REQUEST', 'APPOINTMENT_UPDATE', 'CONSULTATION_UPCOMING', 'APPEAL', 'FACULTY_LEAVE', 'LEAVE_CANCELLATION']);
+// Every notification is also emailed to the person's school address (panelist rule 5.1), Dean broadcasts
+// included. Gmail allows about 500 messages a day from a personal sender, which is plenty for a small
+// user base. Set EMAIL_NOTIFICATIONS=off to disable emailing (for example in local tests).
 
 // Fire-and-forget: a slow or failing mailbox must never delay or break the action that triggered it.
 function emailCopies(ids, payload) {
-  if (process.env.EMAIL_NOTIFICATIONS === 'off' || !EMAIL_TYPES.has(payload.type)) return;
+  if (process.env.EMAIL_NOTIFICATIONS === 'off') return;
   User.find({ _id: { $in: ids }, accountStatus: 'ACTIVE' }).select('email').lean()
-    .then(users => Promise.all(users.filter(u => u.email).map(u =>
-      sendNotificationEmail(u.email, payload).catch(err => console.error('Notification email failed:', err.message)))))
+    .then(async (users) => {
+      // One at a time, so a broadcast does not hit Gmail with a burst of simultaneous messages.
+      for (const u of users.filter(x => x.email)) {
+        await sendNotificationEmail(u.email, payload).catch(err => console.error('Notification email failed:', err.message));
+      }
+    })
     .catch(err => console.error('Notification email lookup failed:', err.message));
 }
 

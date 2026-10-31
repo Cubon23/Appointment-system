@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const express = require('express');
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
@@ -46,6 +47,7 @@ const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const { STUDENT_ID_REGEX: SCHOOL_ID_REGEX, EMPLOYEE_ID_REGEX: FACULTY_ID_REGEX } = require('../utils/idValidator');
 const Broadcast = require('../models/Broadcast');
 const { isProfileComplete, parseList, audienceMismatch } = require('../utils/signInPolicy');
+const { bulkCancelDecision, MAX_BULK } = require('../utils/bulkCancel');
 const { manilaNow, manilaDate } = require('../utils/manilaTime');
 
 // Booking / cancellation time limits (appointment date + time are Manila time)
@@ -745,54 +747,6 @@ router.put('/notice/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id),
   } catch (err) { res.status(500).json({ error: 'Error saving notice' }); }
 });
 
-// 14. PUT ROUTE: Save a Future Flag Date & AUTO-CANCEL Appointments on that date
-router.put('/flag-date/:id', requireAuth(['FACULTY']), ownerOnly(r => r.params.id), async (req, res) => {
-  try {
-    const { flagDate, reason } = req.body;
-    
-    const updated = await User.findByIdAndUpdate(
-      req.params.id, 
-      { flaggedDate: flagDate, flaggedReason: reason }, 
-      { new: true }
-    );
-
-    const affected = await Appointment.find({
-      facultyId: req.params.id,
-      date: flagDate,
-      status: { $in: ['PENDING', 'APPROVED'] }
-    });
-
-    await Appointment.updateMany(
-      { 
-        facultyId: req.params.id, 
-        date: flagDate, 
-        status: { $in: ['PENDING', 'APPROVED'] } 
-      },
-      { 
-        $set: { 
-          status: 'CANCELLED (FACULTY ON LEAVE)',
-          reason: 'System Auto-Cancel: Faculty declared emergency leave.'
-        } 
-      }
-    );
-
-    for (const apt of affected) {
-      await notify(await resolveStudentId(apt), {
-        type: 'LEAVE_CANCELLATION',
-        title: 'Consultation cancelled (faculty on leave)',
-        message: `Your consultation on ${fmtDate(apt.date)} at ${fmtTime(apt.time)} was cancelled because ${updated ? updated.name : 'the instructor'} declared leave.`,
-      });
-    }
-    await notifyRole('DEAN', {
-      type: 'FACULTY_LEAVE',
-      title: 'Faculty leave declared',
-      message: `${updated ? updated.name : 'A faculty member'} declared leave on ${fmtDate(flagDate)}. ${affected.length} appointment(s) were auto-cancelled.`,
-    });
-
-    res.json(updated);
-  } catch (err) { res.status(500).json({ error: 'Error saving flag date' }); }
-});
-
 // 15. GET ROUTE: Fetch appointments for one specific student
 // NOTE: previously matched by studentName (string), which meant two students sharing the
 // same name could see each other's appointments. Now scoped to the actual account's ID.
@@ -1063,6 +1017,46 @@ router.patch('/appointment/:id/cancel', requireAuth(['FACULTY']), async (req, re
     res.json({ message: 'Consultation cancelled.', appointment: apt });
   } catch (error) {
     res.status(500).json({ error: 'Server error cancelling consultation.' });
+  }
+});
+
+// Cancel several appointments at once (panelist rule 3.3). Students cancel their own open requests and
+// appointments; faculty cancel approved appointments and decline pending requests. One reason covers all.
+// Each appointment is checked on its own; the ones that cannot be cancelled are reported back, not failed.
+router.post('/appointments/bulk-cancel', requireAuth(['STUDENT', 'FACULTY']), async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(String))] : [];
+    const reason = String(req.body.reason || '').trim().slice(0, 300);
+    if (!ids.length) return res.status(400).json({ error: 'Select at least one appointment.' });
+    if (ids.length > MAX_BULK) return res.status(400).json({ error: `You can cancel up to ${MAX_BULK} at a time.` });
+    if (!reason) return res.status(400).json({ error: 'Please select or enter a reason.' });
+
+    const me = await User.findById(req.user.userId).select('name');
+    const role = req.user.role;
+    const cancelled = [];
+    const skipped = [];
+    for (const id of ids) {
+      const apt = mongoose.isValidObjectId(id) ? await Appointment.findById(id) : null;
+      const d = bulkCancelDecision({ role, userId: req.user.userId, userName: me && me.name, apt, nowMs: Date.now() });
+      if (!d.ok) { skipped.push({ id, reason: d.reason }); continue; }
+
+      apt.status = d.newStatus;
+      apt.cancelReason = reason;
+      await apt.save();
+      cancelled.push(id);
+
+      const when = `${fmtDate(apt.date)} at ${fmtTime(apt.time)}`;
+      if (role === 'STUDENT') {
+        await notify(apt.facultyId, { type: 'APPOINTMENT_UPDATE', title: 'Consultation cancelled by student', message: `${apt.studentName} cancelled the consultation on ${when}. Reason: ${reason}` });
+      } else {
+        const verb = d.newStatus === 'REJECTED' ? 'declined' : 'cancelled';
+        await notify(await resolveStudentId(apt), { type: 'APPOINTMENT_UPDATE', title: `Consultation ${verb}`, message: `${me ? me.name : 'Your instructor'} ${verb} your consultation on ${when}. Reason: ${reason}` });
+      }
+    }
+    res.json({ message: `${cancelled.length} cancelled${skipped.length ? `, ${skipped.length} could not be cancelled` : ''}.`, cancelled, skipped });
+  } catch (error) {
+    console.error('Bulk cancel error:', error.message);
+    res.status(500).json({ error: 'Server error cancelling the appointments.' });
   }
 });
 
