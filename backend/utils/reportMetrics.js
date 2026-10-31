@@ -51,7 +51,9 @@ function outcomeCounts(appointments) {
     requests: appointments.filter(isCounted).length,
     completed,
     upcoming: by((s) => s === 'APPROVED'),
-    declined: by((s) => s === 'REJECTED'),
+    // A request the system rejected because nobody answered it is "expired", not a faculty decision.
+    declined: appointments.filter((a) => a.status === 'REJECTED' && !a.autoRejected).length,
+    expired: appointments.filter((a) => a.status === 'REJECTED' && a.autoRejected).length,
     missedStudent,
     missedFaculty,
     missed,
@@ -194,7 +196,7 @@ function buildFacultyOutcomeRows(appointments, faculty) {
     const c = outcomeCounts(appointments.filter((a) => String(a.facultyId) === String(f._id)));
     return {
       facultyId: String(f._id), name: f.name, programPosition: f.programPosition || '',
-      requests: c.requests, completed: c.completed, declined: c.declined,
+      requests: c.requests, completed: c.completed, declined: c.declined, expired: c.expired,
       cancelledByFaculty: c.cancelledFaculty, missedByFaculty: c.missedFaculty, studentNoShows: c.missedStudent,
     };
   }).sort((a, b) => b.completed - a.completed || b.requests - a.requests || a.name.localeCompare(b.name));
@@ -208,7 +210,7 @@ function buildStudentOutcomeRows(appointments) {
     if (!key) return;
     const line = by.get(key) || { studentKey: key, name: studentName(a), section: a.studentSection || '', completed: 0, declined: 0, cancelledByStudent: 0, noShows: 0 };
     if (a.status === 'COMPLETED') line.completed += 1;
-    else if (a.status === 'REJECTED') line.declined += 1;
+    else if (a.status === 'REJECTED' && !a.autoRejected) line.declined += 1;
     else if (isCancelledStudent(a.status)) line.cancelledByStudent += 1;
     else if (isMissedStudent(a.status)) line.noShows += 1;
     by.set(key, line);

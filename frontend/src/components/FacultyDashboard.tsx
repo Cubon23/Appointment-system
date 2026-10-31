@@ -16,6 +16,7 @@ import { statusColor, statusLabel, hasStarted, isBeforeCutoff, CANCEL_CUTOFF_HOU
 import NotificationBell from './NotificationBell';
 import CancelReasonPicker, { FACULTY_CANCEL_REASONS } from './CancelReasonPicker';
 import AppealControls from './AppealControls';
+import BulkCancelModal from './BulkCancelModal';
 import FacultyAnalytics from './FacultyAnalytics';
 import SidebarIdentity from './SidebarIdentity';
 import WelcomeHeader from './WelcomeHeader';
@@ -159,8 +160,7 @@ export default function FacultyDashboard() {
   const [myAppointments, setMyAppointments] = useState<any[]>([]);
   const hasSyncedRef = useRef(false);
   const [notice, setNotice] = useState('');
-  const [flagDate, setFlagDate] = useState('');
-  const [flagReason, setFlagReason] = useState('');
+  const [bulkOpen, setBulkOpen] = useState(false);
   // Faculty's own private calendar notes — date-specific (not recurring), e.g. { _id, date: 'YYYY-MM-DD', startTime, endTime, text }
   const [personalEvents, setPersonalEvents] = useState<any[]>([]);
   const [noteModal, setNoteModal] = useState<{ date: string; startTime: string; endTime: string; text: string; editingId: string | null } | null>(null);
@@ -466,16 +466,6 @@ const saveConsultationHours = async () => {
     } catch (error) {}
   };
 
-  const handleFlagDate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await authFetch(`${import.meta.env.VITE_API_URL}/api/faculty/flag-date/${userId}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ flagDate, reason: flagReason })
-      });
-      toast({ title: 'Future absence flagged!', status: 'success' });
-    } catch (error) {}
-  };
 
   // A note can't be placed on top of a teaching block or consultation hours for that day/date.
   // (Overlapping an already-approved appointment is still blocked too, to keep the slot unambiguous.)
@@ -975,14 +965,6 @@ const saveConsultationHours = async () => {
                   ))}
                 </div>
 
-                <Box bg={cardBg} p={4} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
-                  <form onSubmit={handleFlagDate}>
-                    <HStack spacing={4} alignItems="flex-end" flexWrap="wrap">
-                      <FormControl><FormLabel color={textColor} fontSize="sm">Emergency Absence</FormLabel><Input type="date" size="sm" value={flagDate} onChange={e => setFlagDate(e.target.value)} color={textColor} mb={2} /><Input type="text" size="sm" placeholder="Reason (optional)" value={flagReason} onChange={e => setFlagReason(e.target.value)} color={textColor} /></FormControl>
-                      <ChakraButton type="submit" size="sm" colorScheme="red" px={6}>Mass Cancel Appts</ChakraButton>
-                    </HStack>
-                  </form>
-                </Box>
               </Flex>
 
             </div>
@@ -1168,7 +1150,11 @@ const saveConsultationHours = async () => {
         ─────────────────────────────────────────────────────────────── */}
         {activePage === "requests" && (
           <div style={{ padding: "32px", overflowY: "auto" }}>
-            <h1 style={{ fontSize: "18px", fontWeight: 700, marginBottom: "20px", color: textColor }}>Pending Appointment Requests</h1>
+            <Flex justify="space-between" align="center" mb={5} gap={3} wrap="wrap">
+              <h1 style={{ fontSize: "18px", fontWeight: 700, color: textColor }}>Pending Appointment Requests</h1>
+              <ChakraButton size="sm" colorScheme="red" variant="outline" onClick={() => setBulkOpen(true)}>Cancel several…</ChakraButton>
+            </Flex>
+            <BulkCancelModal isOpen={bulkOpen} onClose={() => setBulkOpen(false)} role="FACULTY" appointments={myAppointments} onDone={fetchData} />
             <Box bg={cardBg} p={6} borderRadius="lg" borderWidth="1px" borderColor={borderColor} shadow="sm">
                <Table variant="simple" size="sm">
                 <Thead><Tr><Th color={mutedText}>Student</Th><Th color={mutedText}>Date/Time</Th><Th color={mutedText}>Reason</Th><Th color={mutedText}>Status</Th><Th color={mutedText}>Action</Th></Tr></Thead>

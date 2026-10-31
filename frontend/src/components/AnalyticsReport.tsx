@@ -15,7 +15,7 @@ interface ReportData {
   generatedAt: string;
   kpis: { requests: Window; completed: Window; missed: Window & { student: number; faculty: number }; completionRate: number | null; missedRate: number | null; activeFaculty: number };
   outcomes: {
-    requests: number; completed: number; upcoming: number; declined: number; missedStudent: number; missedFaculty: number;
+    requests: number; completed: number; upcoming: number; declined: number; expired: number; missedStudent: number; missedFaculty: number;
     cancelledStudent: number; cancelledFaculty: number;
   };
   weekly: LV[];
@@ -25,7 +25,7 @@ interface ReportData {
   heatmap: HeatmapData;
   cohortStudents: CohortRow[];
   gender: { students: LV[]; faculty: LV[] };
-  facultyOutcomes: { facultyId: string; name: string; programPosition: string; requests: number; completed: number; declined: number; cancelledByFaculty: number; missedByFaculty: number; studentNoShows: number }[];
+  facultyOutcomes: { facultyId: string; name: string; programPosition: string; requests: number; completed: number; declined: number; expired: number; cancelledByFaculty: number; missedByFaculty: number; studentNoShows: number }[];
   studentOutcomes: { studentKey: string; name: string; section: string; completed: number; declined: number; cancelledByStudent: number; noShows: number }[];
   appeals: {
     summary: { appealRate: number | null; total: number; faculty: { made: number } };
@@ -41,7 +41,7 @@ interface ReportData {
 const pctText = (n: number | null) => (n === null ? '—' : `${n}%`);
 const trend = (w: Window) => `last 4 weeks: ${w.last4} (before that: ${w.prev4})`;
 const ROLE_NAMES: Record<string, string> = { STUDENT: 'Students', FACULTY: 'Faculty', DEAN: 'Deans', ADMIN: 'Admins' };
-const OUTCOME_COLORS = { completed: '#16a34a', upcoming: '#2563eb', declined: '#dc2626', missedStudent: '#f08a3c', missedFaculty: '#e11d48', cancelledStudent: '#94a3b8', cancelledFaculty: '#64748b' };
+const OUTCOME_COLORS = { completed: '#16a34a', upcoming: '#2563eb', declined: '#dc2626', expired: '#ca8a04', missedStudent: '#f08a3c', missedFaculty: '#e11d48', cancelledStudent: '#94a3b8', cancelledFaculty: '#64748b' };
 
 // The Reports & Analytics page shared by Admin and Dean. Admin also gets an "Account health" tab.
 export default function AnalyticsReport() {
@@ -113,6 +113,7 @@ export default function AnalyticsReport() {
             { label: 'Completed', value: o.completed, color: OUTCOME_COLORS.completed },
             { label: 'Upcoming', value: o.upcoming, color: OUTCOME_COLORS.upcoming },
             { label: 'Declined', value: o.declined, color: OUTCOME_COLORS.declined },
+            { label: 'Expired (no response)', value: o.expired, color: OUTCOME_COLORS.expired },
             { label: 'Missed (student)', value: o.missedStudent, color: OUTCOME_COLORS.missedStudent },
             { label: 'Missed (faculty)', value: o.missedFaculty, color: OUTCOME_COLORS.missedFaculty },
             { label: 'Cancelled (student)', value: o.cancelledStudent, color: OUTCOME_COLORS.cancelledStudent },
@@ -130,7 +131,7 @@ export default function AnalyticsReport() {
     <Box {...tableBox}>
       <Table size="sm">
         <Thead position="sticky" top={0} bg={surface} zIndex={1}><Tr>
-          <Th color={muted}>Faculty</Th><Th color={muted} isNumeric>Completed</Th><Th color={muted} isNumeric>Declined</Th>
+          <Th color={muted}>Faculty</Th><Th color={muted} isNumeric>Completed</Th><Th color={muted} isNumeric>Declined</Th><Th color={muted} isNumeric>Expired</Th>
           <Th color={muted} isNumeric>Cancelled by faculty</Th><Th color={muted} isNumeric>Missed by faculty</Th><Th color={muted} isNumeric>Student no-shows</Th>
         </Tr></Thead>
         <Tbody>
@@ -139,6 +140,7 @@ export default function AnalyticsReport() {
               <Td><Text fontWeight="600" color={text}>{f.name}</Text>{f.programPosition && <Text fontSize="xs" color={muted}>{f.programPosition}</Text>}</Td>
               <Td isNumeric fontWeight="700" color={text}>{f.completed}</Td>
               <Td isNumeric color={text}>{f.declined}</Td>
+              {countCell(f.expired, '#ca8a04')}
               {countCell(f.cancelledByFaculty, '#64748b')}{countCell(f.missedByFaculty, '#e11d48')}{countCell(f.studentNoShows, '#f08a3c')}
             </Tr>
           ))}

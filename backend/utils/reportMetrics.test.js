@@ -85,3 +85,11 @@ test('gender counts older accounts as Not provided', () => {
   const g = buildGender([{ role: 'STUDENT', accountStatus: 'ACTIVE', gender: 'Female' }, { role: 'STUDENT', accountStatus: 'ACTIVE' }]);
   assert.deepStrictEqual(g.students, [{ label: 'Female', value: 1 }, { label: 'Not provided', value: 1 }]);
 });
+test('expired requests are counted separately from declined, for the faculty table and the student table', () => {
+  const { outcomeCounts, buildStudentOutcomeRows } = require('./reportMetrics');
+  const list = [apt({ status: 'REJECTED' }), apt({ status: 'REJECTED', autoRejected: true })];
+  const c = outcomeCounts(list);
+  assert.strictEqual(c.declined, 1);
+  assert.strictEqual(c.expired, 1);
+  assert.strictEqual(buildStudentOutcomeRows(list)[0].declined, 1);
+});

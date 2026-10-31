@@ -99,3 +99,12 @@ test('students table: distinct students by program, year and section', () => {
   assert.strictEqual(find('BS INFO', '3').count, 2); // a counted once, even with two requests
   assert.strictEqual(find('BLIS', '1').count, 1);   // pending request is not counted
 });
+
+test('expired (auto-rejected) requests are not faculty declines and do not lower the approval rate', () => {
+  const mk = (status, extra = {}) => ({ status, date: '2026-10-20', time: '09:00', studentId: status + Math.random(), studentName: 'x', studentSection: 'BS INFO 3A', reason: 'x', ...extra });
+  const r = buildFacultyAnalytics({ todayIso: '2026-10-28', appointments: [mk('COMPLETED'), mk('REJECTED'), mk('REJECTED', { autoRejected: true }), mk('REJECTED', { autoRejected: true })] });
+  assert.strictEqual(r.outcomes.declined, 1);
+  assert.strictEqual(r.outcomes.expired, 2);
+  assert.strictEqual(r.outcomes.approvalRate, 50); // 1 approved-or-later vs 1 declined; expired ignored
+  assert.strictEqual(r.kpis.approved.expired, 2);
+});
